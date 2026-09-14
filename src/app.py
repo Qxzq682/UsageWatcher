@@ -61,7 +61,8 @@ class Daemon:
 
     def __init__(self) -> None:
         self.stop_event = threading.Event()
-        self.paused = False
+        # 暂停状态必须从配置恢复：用户按下暂停的意图不得被重启静默撤销（BUG-4）
+        self.paused = bool(config.load().get("paused", False))
         self.paused_by_power = False
         self.store = data.Store()
         self.resolver = apps.Resolver()
@@ -97,6 +98,8 @@ class Daemon:
             return False
         self.icon = tray.TrayIcon(self.window, self._menu_items)
         self.icon.show()
+        if self.paused:
+            self.icon.set_tooltip("已暂停统计")   # 恢复的暂停状态要立刻可见
         self.fg.install()
         self.power.register(self.window.hwnd)
         self.window.on(tray.WM_COMMAND, self._on_command)
@@ -185,6 +188,13 @@ class Daemon:
             self.flush(force=True)
             self.fg_tracker.force_close(_now_ms(), config.FLAG_LOCK)
         self.paused = value
+        # 暂停意图落盘：重启/崩溃重开都不许静默恢复采集（BUG-4，隐私优先）
+        cfg = config.load()
+        cfg["paused"] = value
+        try:
+            config.save(cfg)
+        except OSError:
+            self.store.error_count += 1   # R8：落盘失败必须可见，不许静默吞掉
         self.store.log_event("pause" if value else "resume_collect")
         if self.icon:
             self.icon.set_tooltip("已暂停统计" if value else config.APP_TITLE)

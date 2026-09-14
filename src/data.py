@@ -148,10 +148,7 @@ class Store:
     # ------------------------------------------------------------ 可监测性
 
     def upsert_capability(self, cap) -> None:
-        """写入可监测性。
-
-        注意 enabled 的最终决定权在 app_capability 表，不在 config.json ——
-        level='no' 的行**恒为 enabled=0**（数据库层 CHECK 兜底），
+        """写入可监测性。level='no' 的行**恒为 enabled=0**（数据库层 CHECK 兜底），
         所以手工改配置文件也绕不过去（不可监测四重加固的第 2 层）。
         """
         enabled = 0 if cap.level == "no" else int(bool(cap.enabled))
@@ -376,8 +373,8 @@ class Store:
 
     def _meta_set(self, key: str, value: str) -> None:
         self.conn.execute(
-            "INSERT INTO meta (key, value) VALUES (?, ?) "
-            "ON CONFLICT(key) DO UPDATE SET value = excluded.value",
+            "INSERT INTO meta (key, value) VALUES (?, ?)"
+            " ON CONFLICT(key) DO UPDATE SET value = excluded.value",
             (key, value),
         )
         self.conn.commit()
@@ -394,5 +391,10 @@ class Store:
         self.conn.execute("DELETE FROM event")
         self.conn.commit()
         self.conn.execute("VACUUM")
+        # 已删页必须从 WAL 物理回收，否则"彻底删除"只是逻辑上的（实测 WAL 滞留过 4MB 历史）
+        try:
+            self.conn.execute("PRAGMA wal_checkpoint(TRUNCATE)")
+        except sqlite3.Error:
+            self.error_count += 1
         self._app_ids = {}
         self._app_seen_flush = {}
