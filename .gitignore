@@ -1,0 +1,35 @@
+# 不要提交用户数据、构建产物与个人环境信息
+# （注意：数据库里是你真实的使用记录，绝对不要提交）
+
+# 运行时数据
+usage.db
+usage.db-wal
+usage.db-shm
+config.json
+stop.flag
+icons/
+*.log
+audit_report.txt
+
+# Python
+__pycache__/
+*.py[cod]
+.venv/
+venv/
+*.egg-info/
+
+# 构建产物
+build/
+dist/
+*.spec.bak
+
+# 编辑器与系统
+.idea/
+.vscode/
+.DS_Store
+Thumbs.db
+
+# 临时 / 个人
+*.tmp
+*.bak
+~$*

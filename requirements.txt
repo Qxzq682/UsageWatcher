@@ -1,0 +1,13 @@
+# 运行本程序需要的第三方依赖（全部 pin 精确版本）
+#
+# 本机已有的验证环境：
+#   Python 3.13.14
+#   C:\Users\Q\.workbuddy\binaries\python\envs\default\Scripts\python.exe
+#
+# 安装：python.exe -m pip install -r requirements.txt
+# 国内加速：加 -i https://pypi.tuna.tsinghua.edu.cn/simple
+
+psutil==7.2.2
+pywin32==312
+PySide6-Essentials==6.11.1
+shiboken6==6.11.1
