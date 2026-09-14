@@ -72,13 +72,13 @@ def check_network_runtime(explicit_pid: int) -> bool:
         say("    [!] 没找到正在运行的守护进程 → 本次跳过")
         say("        先正常运行程序，再重跑本项即可验证。")
         say("    结果：跳过（不是通过，也不是不通过）")
-        return True
+        return None          # 跳过不计入"通过"（BUG-8）：宁可不完整，不许虚报
     try:
         out = subprocess.run(["netstat", "-ano"], capture_output=True, shell=False)
         text = out.stdout.decode("gbk", errors="replace")
     except OSError as exc:
         say("    [!] 无法运行 netstat：%s" % exc)
-        return True
+        return None
     marker = " %d" % pid
     lines = [line.strip() for line in text.splitlines() if marker in line and str(pid) in line.split()[-1:]]
     say("    检查 PID %d 的网络条目" % pid)
@@ -193,7 +193,7 @@ def check_requirements() -> bool:
     req = ROOT / "requirements.txt"
     if not req.exists():
         say("    [!] 没有 requirements.txt → 跳过")
-        return True
+        return None
     want = {}
     for line in req.read_text(encoding="utf-8").splitlines():
         line = line.strip()
@@ -206,7 +206,7 @@ def check_requirements() -> bool:
         import importlib.metadata as meta
     except ImportError:
         say("    [!] 无法读取已安装包信息 → 跳过")
-        return True
+        return None
     bad = []
     for name, version in want.items():
         try:
@@ -275,10 +275,14 @@ def main() -> int:
     ]
     say()
     say("=" * 70)
-    passed = sum(1 for _name, ok in results if ok)
-    say(" 汇总：%d / %d 项通过" % (passed, len(results)))
+    passed = sum(1 for _n, ok in results if ok is True)
+    failed = sum(1 for _n, ok in results if ok is False)
+    skipped = sum(1 for _n, ok in results if ok is None)
+    say(" 汇总：%d 通过 / %d 失败 / %d 跳过" % (passed, failed, skipped))
     for name, ok in results:
-        say("   [%s] %s" % ("√" if ok else "x", name))
+        say("   [%s] %s" % ("√" if ok is True else ("!" if ok is None else "x"), name))
+    if skipped:
+        say(" ⚠ 本次自证不完整：%d 项跳过（完整自证需先启动守护进程）" % skipped)
     say("=" * 70)
 
     report = config.audit_report_path()
@@ -287,7 +291,7 @@ def main() -> int:
         print("\n报告已写入：%s" % report)
     except OSError as exc:
         print("报告写入失败：%s" % exc)
-    return 0 if passed == len(results) else 1
+    return 1 if failed else 0     # 跳过不算失败，但已打印"不完整"提醒（BUG-8）
 
 
 if __name__ == "__main__":
