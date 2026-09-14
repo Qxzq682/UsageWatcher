@@ -5,10 +5,8 @@
     --gui       统计窗口（独立的 PySide6 进程，关窗即退出、内存释放）
     --smoke     自检模式，跑几秒自动退出（给自动化验证用）
 
-线程模型：
-    主线程  = Win32 消息循环（派发 WinEvent 回调、托盘消息、电源/会话通知）
-    工作线程 = 采集与写库
-这样 UI/托盘永远不会被磁盘 I/O 卡住（否则会出现"点击无响应"）。
+线程模型：主线程 = Win32 消息循环（WinEvent 回调/托盘/电源通知），
+工作线程 = 采集与写库。UI/托盘永远不会被磁盘 I/O 卡住。
 """
 
 from __future__ import annotations
@@ -31,27 +29,25 @@ import sysmsg    # noqa: E402
 import tray      # noqa: E402
 
 _MUTEX_NAME = "Global\\UsageWatcher_SingleInstance_"
-_mutex_handle = None
+_mutex_handles: list = []      # 互斥体句柄要保活，进程退出由系统回收
 
 
 # ---------------------------------------------------------------- 单实例
 
-def acquire_single_instance() -> bool:
-    """命名互斥体判重。名字带当前用户 SID，避免多用户环境互相抢占。
-
-    刻意不建任何 IPC 通道（不用命名管道/端口/QLocalServer）——
-    第二个实例直接去开统计窗口读同一个库即可，没有可被劫持的通道。
-    """
-    global _mutex_handle
-    import winutil
-    name = _MUTEX_NAME + (winutil.current_user_sid() or "unknown")
+def _acquire_mutex(name: str) -> bool:
+    """创建命名互斥体，返回是否为新实例；创建失败就不拦（宁多开不开不了）。"""
     kernel32 = ctypes.WinDLL("kernel32", use_last_error=True)
     kernel32.CreateMutexW.restype = ctypes.c_void_p
     kernel32.CreateMutexW.argtypes = [ctypes.c_void_p, ctypes.c_int, ctypes.c_wchar_p]
-    _mutex_handle = kernel32.CreateMutexW(None, False, name)
-    if not _mutex_handle:
+    handle = kernel32.CreateMutexW(None, False, name)
+    if not handle:
         return True                     # 创建失败就不拦，宁可多开也不要开不了
+    _mutex_handles.append(handle)
     return ctypes.get_last_error() != 183   # ERROR_ALREADY_EXISTS
+
+
+def acquire_single_instance() -> bool:
+    return _acquire_mutex(_MUTEX_NAME + _user_sid())
 
 
 # ---------------------------------------------------------------- 守护进程
@@ -74,8 +70,10 @@ class Daemon:
         self.window = tray.ShellWindow()
         self.icon = None
         self._pending: list = []
+        self._pending_lock = threading.Lock()   # 主线程/工作线程都写 _pending（BUG-9）
         self._last_flush = time.monotonic()
-        self._last_trim = 0.0
+        self._last_trim, self._last_housekeep = 0.0, 0.0
+        self._last_maint = time.monotonic()     # 启动时已跑过一次 maintenance
         self._enabled: dict = {}
         self._enabled_at = 0.0
         self._known_exes: set = set()
@@ -85,12 +83,9 @@ class Daemon:
     # ---------------------------------------------------- 生命周期
 
     def start(self) -> bool:
-        # 清掉可能残留的停止标志：否则上一轮没被消费的标志会让刚启动的进程
-        # 立刻把自己关掉（实测踩过：表现为"启动了但马上就没进程了"）
+        # 清掉残留的停止标志：否则上一轮没消费的标志会让刚启动的进程立刻自杀
         try:
-            stale = config.stop_flag_path()
-            if stale.exists():
-                stale.unlink()
+            config.stop_flag_path().unlink(missing_ok=True)
         except OSError:
             pass
         if not self.window.create():
@@ -103,8 +98,7 @@ class Daemon:
         self.fg.install()
         self.power.register(self.window.hwnd)
         self.window.on(tray.WM_COMMAND, self._on_command)
-        # 两个电源相关消息各注册一个处理器：把消息 id 一起绑进去，
-        # 避免在处理器里再去猜"这条消息到底是哪一个"（那种写法很容易出错）
+        # 消息 id 绑进 lambda，避免处理器里再猜"这条消息是哪一个"
         self.window.on(sysmsg.WM_POWERBROADCAST,
                        lambda wp, lp: self._on_power(sysmsg.WM_POWERBROADCAST, wp))
         self.window.on(sysmsg.WM_WTSSESSION_CHANGE,
@@ -116,30 +110,47 @@ class Daemon:
     def run(self) -> int:
         if not self.start():
             return 1
-        self.window.run(on_tick=lambda: None, should_stop=self.stop_event.is_set,
+        self.window.run(on_tick=self._housekeeping, should_stop=self.stop_event.is_set,
                         tick_ms=500)
         self.shutdown()
         return 0
 
-    def stop_and_flush(self) -> None:
-        """停采集 + 等工作线程收尾 + 闭合在开片段 + 落库。
+    def _housekeeping(self) -> None:
+        """60s 节流的低频杂务：tooltip 刷新（第 7 步）+ 异常可见（R8）+ event 周期裁剪。"""
+        now = time.monotonic()
+        if now - self._last_housekeep < 60.0:
+            return
+        self._last_housekeep = now
+        if now - self._last_maint >= 86400.0:    # maintenance 的 event 裁剪每 24h
+            self._last_maint = now
+            self.store.maintenance()
+        if not self.icon:
+            return
+        if self.paused:
+            self.icon.set_tooltip("已暂停统计")
+            return
+        d = track.day_of(_now_ms()); s = self.store.totals_summary(d, d)
+        tip = "%s\n今日前台 %s · 后台 %s" % (
+            config.APP_TITLE, _fmt_duration(s["fg_ms"]), _fmt_duration(s["bg_ms"]))
+        if self.store.error_count:
+            tip += "\n[!] 采集异常 %d 次" % self.store.error_count
+        self.icon.set_tooltip(tip)
 
-        两条实战教训都在这里：
-        · 必须**先把当前还开着的片段闭合**再退出，否则每次退出都会丢掉
-          "用户正在用的那一段"（自检时表现为"记录了 0 个应用"）。
-        · 查询要发生在关库之前，shutdown() 之后查库会撞
-          "Cannot operate on a closed database"。
+    def stop_and_flush(self) -> None:
+        """停采集 + 等工作线程收尾 + **先闭合还开着的片段**再落库。
+
+        不闭合就退出会丢掉"用户正在用的那一段"（自检表现为"记录 0 个应用"）。
         """
         self.stop_event.set()
         if self._worker and self._worker.is_alive():
             self._worker.join(timeout=3)
         now = _now_ms()
-        self._pending.extend(self.fg_tracker.force_close(now, config.FLAG_EXIT))
-        self._pending.extend(self.bg_tracker.close_all(now, config.FLAG_EXIT))
+        self._emit(self.fg_tracker.force_close(now, config.FLAG_EXIT))
+        self._emit(self.bg_tracker.close_all(now, config.FLAG_EXIT))
         self.flush(force=True)
 
     def shutdown(self) -> None:
-        self.stop_and_flush()          # 关键：数据已经写完了
+        self.stop_and_flush()          # 数据已落库，之后才允许关库
         try:
             self.power.unregister(self.window.hwnd)
             self.fg.uninstall()
@@ -147,21 +158,17 @@ class Daemon:
                 self.icon.hide()
             self.window.destroy()
         except Exception:
-            # 数据此刻已落库，剩下的都是资源释放；
-            # 释放失败不该让退出流程中断（否则进程可能残留）
-            pass      # nosec B110
+            pass      # nosec B110  剩下的只是资源释放，失败也不能阻断退出（防进程残留）
         self.store.log_event("daemon_stop")
         self.store.close()
 
     # ---------------------------------------------------- 托盘菜单
 
     def _menu_items(self) -> list:
-        summary = self.store.totals_summary(track.day_of(_now_ms()), track.day_of(_now_ms()))
-        return tray.Options.build(
-            self.paused,
-            _fmt_duration(summary["fg_ms"]),
-            _fmt_duration(summary["bg_ms"]),
-        )
+        day = track.day_of(_now_ms())
+        s = self.store.totals_summary(day, day)
+        return tray.Options.build(self.paused, _fmt_duration(s["fg_ms"]),
+                                  _fmt_duration(s["bg_ms"]))
 
     def _on_command(self, item_id: int, _lparam: int) -> None:
         if item_id == tray.Options.OPEN:
@@ -173,9 +180,8 @@ class Daemon:
             self.window.post_quit()
 
     def open_gui(self) -> None:
-        """按需拉起统计窗口进程。子进程参数用列表传递、绝不 shell=True（R5）。"""
+        """按需拉起统计窗口进程。参数全为字面量、绝不 shell=True（R5）。"""
         try:
-            # 参数全是代码里写死的字面量，不含任何外部输入；shell=False 已显式指定
             subprocess.Popen([sys.executable, os.path.abspath(__file__), "--gui"],  # nosec B603
                              shell=False, close_fds=True)
         except OSError as exc:
@@ -188,11 +194,8 @@ class Daemon:
             self.flush(force=True)
             self.fg_tracker.force_close(_now_ms(), config.FLAG_LOCK)
         self.paused = value
-        # 暂停意图落盘：重启/崩溃重开都不许静默恢复采集（BUG-4，隐私优先）
-        cfg = config.load()
-        cfg["paused"] = value
-        try:
-            config.save(cfg)
+        try:    # 暂停意图落盘（BUG-4）：重启/崩溃重开都不许静默恢复采集
+            config.save({**config.load(), "paused": value})
         except OSError:
             self.store.error_count += 1   # R8：落盘失败必须可见，不许静默吞掉
         self.store.log_event("pause" if value else "resume_collect")
@@ -208,16 +211,14 @@ class Daemon:
         if event in ("sleep", "lock"):
             self.paused_by_power = True
             self.flush(force=True)
-            self._pending.extend(self.fg_tracker.force_close(_now_ms(), config.FLAG_LOCK))
-            self._pending.extend(self.bg_tracker.close_all(_now_ms(), config.FLAG_LOCK))
+            self._emit(self.fg_tracker.force_close(_now_ms(), config.FLAG_LOCK))
+            self._emit(self.bg_tracker.close_all(_now_ms(), config.FLAG_LOCK))
             self.sampler.reset_baselines()
         else:   # resume / unlock
             if not self.paused_by_power:
                 return
-            # 必须重置基线：休眠期间进程还在但 CPU/IO 计数不增长，
-            # 不重置的话唤醒后第一次差分会把整段差额算进一个采样周期 → 巨值
-            self.sampler.reset_baselines()
-            self.fg.forget()                # 强制重新识别当前前台程序
+            self.sampler.reset_baselines()   # 必须重置基线：休眠中计数不增长，
+            self.fg.forget()                 # 不重置则唤醒后第一次差分是巨值
             self.paused_by_power = False
         self.store.log_event(event)
 
@@ -265,40 +266,42 @@ class Daemon:
         if self.sampler.due(time.monotonic()):
             samples, exited = self.sampler.sample(now_ms, self._known())
             for pid in exited:
-                self._pending.extend(self.bg_tracker.close_pid(pid, now_ms))
+                self._emit(self.bg_tracker.close_pid(pid, now_ms))
                 self.resolver.forget_pid(pid)
             for sample in samples:
                 self._handle_bg(sample)
 
         self.flush()
 
+    def _emit(self, segments: list) -> None:
+        """新片段汇入待写队列。主线程（锁屏/暂停/退出）与工作线程（采集）
+        都会调用，不加锁的话 rebind 交错会静默丢掉 ≤1 个 flush 周期（BUG-9）。"""
+        with self._pending_lock:
+            self._pending.extend(segments)
+
     def _handle_fg(self, sample) -> None:
         if sample.pid <= 0:
-            self._pending.extend(self.fg_tracker.force_close(sample.ts_ms, 0))
+            self._emit(self.fg_tracker.force_close(sample.ts_ms, 0))
             return
         info = self.resolver.resolve(sample.pid)
         if not self._register(info):
             # 不可监测 / 用户没勾选 → 不采集，并闭合可能还开着的片段
-            self._pending.extend(self.fg_tracker.force_close(sample.ts_ms, 0))
+            self._emit(self.fg_tracker.force_close(sample.ts_ms, 0))
             return
         guessed = not sample.from_event
-        self._pending.extend(
-            self.fg_tracker.on_fg(info.app_key, sample.pid, sample.ts_ms, guessed))
+        self._emit(self.fg_tracker.on_fg(info.app_key, sample.pid, sample.ts_ms, guessed))
 
     def _handle_bg(self, sample) -> None:
         info = self.resolver.resolve(sample.pid)
         if not self._register(info):
-            self._pending.extend(self.bg_tracker.close_pid(sample.pid, sample.ts_ms))
+            self._emit(self.bg_tracker.close_pid(sample.pid, sample.ts_ms))
             return
-        self._pending.extend(
-            self.bg_tracker.on_sample(info.app_key, sample.pid, sample.ts_ms, sample.active))
+        self._emit(self.bg_tracker.on_sample(
+            info.app_key, sample.pid, sample.ts_ms, sample.active))
 
     def _register(self, info) -> bool:
-        """写入元信息并决定是否采集。返回 True 表示允许采集。
-
-        不能只信配置文件：最终决定权在 app_capability 表
-        （level='no' 恒为 enabled=0），所以手工改配置也绕不过去。
-        """
+        """写入元信息并决定是否采集。最终决定权在 app_capability 表
+        （level='no' 恒 enabled=0），手工改配置也绕不过。"""
         self.store.upsert_app(info)
         cap = apps.capability_of(info, self.resolver.fail_count(info.app_key))
         if self._enabled.get(info.app_key) is None or cap.level == "no":
@@ -312,8 +315,7 @@ class Daemon:
 
     def _known(self) -> set:
         if time.monotonic() - self._known_at > 300.0:
-            # 7 天窗口：last_seen_ms 现在由 upsert_app 周期性刷新（APP_SEEN_FLUSH_S），
-            # 放宽窗口可容忍"应用几天没被记到"的空档，避免候选池静默缩水
+            # 7 天窗口容忍"应用几天没被记到"的空档（last_seen_ms 已由 upsert 周期刷新）
             self._known_exes = self.store.known_exe_paths(7 * 24)
             self._known_at = time.monotonic()
         return self._known_exes
@@ -322,21 +324,19 @@ class Daemon:
 
     def flush(self, force: bool = False) -> None:
         due = time.monotonic() - self._last_flush >= config.FLUSH_INTERVAL_S
-        if not self._pending or not (force or due or len(self._pending) >= 50):
-            return
-        segments = track.finalize(self._pending)
-        self._pending = []
+        with self._pending_lock:
+            n = len(self._pending)
+            if not n or not (force or due or n >= 50):
+                return
+            batch, self._pending = self._pending, []   # 原子交换：杜绝交错丢段
+        segments = track.finalize(batch)
         self._last_flush = time.monotonic()
         if segments:
             self.store.write_segments(segments)
         self._maybe_trim_memory()
 
     def _maybe_trim_memory(self) -> None:
-        """写完库之后顺带把不常用页换出。
-
-        只在真写过库之后调用 —— 这样既压低了常驻内存，
-        又不会因为频繁触发而反过来增加磁盘负担。
-        """
+        """写完库后把不常用页换出：压低常驻内存，又不频繁触发增加磁盘负担。"""
         if time.monotonic() - self._last_trim < config.EMPTY_WORKING_SET_INTERVAL_S:
             return
         self._last_trim = time.monotonic()
@@ -350,19 +350,25 @@ def _now_ms() -> int:
     return int(time.time() * 1000)
 
 
+def _user_sid() -> str:
+    import winutil
+    return winutil.current_user_sid() or "unknown"
+
+
 def _fmt_duration(ms: int) -> str:
-    minutes = int(ms // 60000)
-    if minutes < 60:
-        return "%dm" % minutes
-    return "%dh%02dm" % (minutes // 60, minutes % 60)
+    m = int(ms // 60000)
+    return "%dm" % m if m < 60 else "%dh%02dm" % (m // 60, m % 60)
 
 
 def run_gui(smoke: bool = False) -> int:
-    """统计窗口（独立进程，关窗即退出）。延迟导入 PySide6，
-    这样守护模式下永远不会加载 Qt。"""
+    """统计窗口（独立进程，关窗即退出）；延迟导入 PySide6，守护模式永不加载 Qt。"""
     import ui_main
     import winutil
-    name = _MUTEX_NAME + (winutil.current_user_sid() or "unknown")
+    sid = _user_sid()
+    # 统计窗口自己的单实例：重复点「打开统计窗口」时第二个进程直接退（BUG-13）
+    if not _acquire_mutex("Local\\UsageWatcher_GUI_" + sid):
+        return 0
+    name = _MUTEX_NAME + sid
     return ui_main.run(smoke=smoke, daemon_alive=lambda: winutil.mutex_alive(name))
 
 
@@ -372,9 +378,8 @@ def main(argv: list) -> int:
     if "--smoke" in argv:
         return _smoke_run()
     if not acquire_single_instance():
-        # 已在运行：不再起第二个采集器，直接把统计窗口拉起来
         print("程序已在运行，正在打开统计窗口…")
-        run_gui()
+        run_gui()          # 不再起第二个采集器，直接把统计窗口拉起来
         return 0
     daemon = Daemon()
     print("%s v%s 正在后台采集。托盘图标可右键操作。" % (config.APP_TITLE, config.APP_VERSION))
@@ -382,11 +387,8 @@ def main(argv: list) -> int:
 
 
 def _smoke_run(seconds: float = 8.0) -> int:
-    """自检交给 tools/smoke_daemon.py —— 诊断工具不该占生产代码的地方。
-
-    只有真的用到 --smoke 时才把它加进 sys.path，
-    这样正常运行（守护/统计窗口）完全不引入 tools 目录。
-    """
+    """自检交给 tools/smoke_daemon.py —— 诊断工具不占生产代码。
+    只有真用到 --smoke 才把 tools 加进 sys.path。"""
     tools_dir = os.path.join(os.path.dirname(os.path.dirname(os.path.abspath(__file__))), "tools")
     if tools_dir not in sys.path:
         sys.path.insert(0, tools_dir)

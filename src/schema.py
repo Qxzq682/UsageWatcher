@@ -10,31 +10,20 @@ from __future__ import annotations
 
 
 SCHEMA_SQL = """
-CREATE TABLE IF NOT EXISTS meta (
-  key TEXT PRIMARY KEY,
-  value TEXT
-);
+CREATE TABLE IF NOT EXISTS meta (key TEXT PRIMARY KEY, value TEXT);
 
 CREATE TABLE IF NOT EXISTS app (
   app_id        INTEGER PRIMARY KEY AUTOINCREMENT,
   app_key       TEXT    NOT NULL UNIQUE,
-  exe_path      TEXT,
-  exe_name      TEXT,
-  display_name  TEXT,
-  version       TEXT,
-  publisher     TEXT,
-  first_seen_ms INTEGER NOT NULL,
-  last_seen_ms  INTEGER NOT NULL
+  exe_path TEXT, exe_name TEXT, display_name TEXT, version TEXT, publisher TEXT,
+  first_seen_ms INTEGER NOT NULL, last_seen_ms INTEGER NOT NULL
 );
 CREATE INDEX IF NOT EXISTS idx_app_lastseen ON app(last_seen_ms);
 
 CREATE TABLE IF NOT EXISTS app_capability (
   app_key    TEXT PRIMARY KEY,
   level      TEXT NOT NULL CHECK (level IN ('yes','partial','no')),
-  reason     TEXT,
-  category   TEXT,
-  enabled    INTEGER NOT NULL DEFAULT 0,
-  decided_ms INTEGER NOT NULL,
+  reason TEXT, category TEXT, enabled INTEGER NOT NULL DEFAULT 0, decided_ms INTEGER NOT NULL,
   CHECK (level <> 'no' OR enabled = 0)
 );
 
@@ -43,11 +32,8 @@ CREATE TABLE IF NOT EXISTS segment (
   app_id   INTEGER NOT NULL REFERENCES app(app_id),
   pid      INTEGER,
   kind     TEXT    NOT NULL CHECK (kind IN ('fg','bg')),
-  start_ms INTEGER NOT NULL,
-  end_ms   INTEGER NOT NULL,
-  dur_ms   INTEGER NOT NULL,
-  day      TEXT    NOT NULL,
-  flags    INTEGER NOT NULL DEFAULT 0,
+  start_ms INTEGER NOT NULL, end_ms INTEGER NOT NULL, dur_ms INTEGER NOT NULL,
+  day      TEXT    NOT NULL, flags INTEGER NOT NULL DEFAULT 0,
   CHECK (end_ms >= start_ms),
   CHECK (dur_ms = end_ms - start_ms)
 );
@@ -56,12 +42,8 @@ CREATE INDEX IF NOT EXISTS idx_seg_app_day  ON segment(app_id, day, kind);
 CREATE INDEX IF NOT EXISTS idx_seg_start    ON segment(start_ms);
 
 CREATE TABLE IF NOT EXISTS event (
-  ev_id  INTEGER PRIMARY KEY AUTOINCREMENT,
-  ts_ms  INTEGER NOT NULL,
-  type   TEXT    NOT NULL,
-  pid    INTEGER,
-  app_id INTEGER,
-  detail TEXT
+  ev_id  INTEGER PRIMARY KEY AUTOINCREMENT, ts_ms INTEGER NOT NULL, type TEXT NOT NULL,
+  pid INTEGER, app_id INTEGER, detail TEXT
 );
 CREATE INDEX IF NOT EXISTS idx_event_ts ON event(ts_ms);
 """

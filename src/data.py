@@ -111,13 +111,12 @@ class Store:
                     self.error_count += 1
             return cached
         self.conn.execute(
-            """INSERT INTO app (app_key, exe_path, exe_name, display_name, version,
-                                publisher, first_seen_ms, last_seen_ms)
-               VALUES (?, ?, ?, ?, ?, ?, ?, ?)
-               ON CONFLICT(app_key) DO UPDATE SET
-                 exe_path=excluded.exe_path, exe_name=excluded.exe_name,
-                 display_name=excluded.display_name, version=excluded.version,
-                 publisher=excluded.publisher, last_seen_ms=excluded.last_seen_ms""",
+            "INSERT INTO app (app_key, exe_path, exe_name, display_name, version, publisher,"
+            " first_seen_ms, last_seen_ms) VALUES (?, ?, ?, ?, ?, ?, ?, ?)"
+            " ON CONFLICT(app_key) DO UPDATE SET exe_path=excluded.exe_path,"
+            " exe_name=excluded.exe_name, display_name=excluded.display_name,"
+            " version=excluded.version, publisher=excluded.publisher,"
+            " last_seen_ms=excluded.last_seen_ms",
             (info.app_key, info.exe_path, info.exe_name, info.display_name,
              info.version, info.publisher, now, now),
         )
@@ -153,12 +152,11 @@ class Store:
         """
         enabled = 0 if cap.level == "no" else int(bool(cap.enabled))
         self.conn.execute(
-            """INSERT INTO app_capability (app_key, level, reason, category, enabled, decided_ms)
-               VALUES (?, ?, ?, ?, ?, ?)
-               ON CONFLICT(app_key) DO UPDATE SET
-                 level=excluded.level, reason=excluded.reason, category=excluded.category,
-                 enabled=CASE WHEN excluded.level='no' THEN 0 ELSE app_capability.enabled END,
-                 decided_ms=excluded.decided_ms""",
+            "INSERT INTO app_capability (app_key, level, reason, category, enabled, decided_ms)"
+            " VALUES (?, ?, ?, ?, ?, ?)"
+            " ON CONFLICT(app_key) DO UPDATE SET level=excluded.level, reason=excluded.reason,"
+            " category=excluded.category, decided_ms=excluded.decided_ms,"
+            " enabled=CASE WHEN excluded.level='no' THEN 0 ELSE app_capability.enabled END",
             (cap.app_key, cap.level, cap.reason, cap.category, enabled,
              int(time.time() * 1000)),
         )
@@ -179,11 +177,11 @@ class Store:
 
     def capability_rows(self) -> List[sqlite3.Row]:
         return self.conn.execute(
-            """SELECT c.app_key, c.level, c.reason, c.category, c.enabled,
-                      a.display_name, a.exe_name, a.exe_path, a.publisher
-               FROM app_capability c LEFT JOIN app a ON a.app_key = c.app_key
-               ORDER BY CASE c.level WHEN 'no' THEN 2 WHEN 'partial' THEN 1 ELSE 0 END,
-                        a.display_name"""
+            "SELECT c.app_key, c.level, c.reason, c.category, c.enabled,"
+            " a.display_name, a.exe_name, a.exe_path, a.publisher"
+            " FROM app_capability c LEFT JOIN app a ON a.app_key = c.app_key"
+            " ORDER BY CASE c.level WHEN 'no' THEN 2 WHEN 'partial' THEN 1"
+            " ELSE 0 END, a.display_name"
         ).fetchall()
 
     # ------------------------------------------------------------ 写片段
@@ -244,8 +242,7 @@ class Store:
     def _intervals(self, day_from: str, day_to: str) -> dict:
         """取出区间，按 (app_id, kind) 分组。"""
         rows = self.conn.execute(
-            """SELECT app_id, kind, start_ms, end_ms FROM segment
-               WHERE day BETWEEN ? AND ?""",
+            "SELECT app_id, kind, start_ms, end_ms FROM segment WHERE day BETWEEN ? AND ?",
             (day_from, day_to),
         ).fetchall()
         grouped: dict = {}
@@ -275,7 +272,6 @@ class Store:
             entry = totals.setdefault(app_id, {"fg_ms": 0, "bg_ms": 0})
             entry["fg_ms" if kind == "fg" else "bg_ms"] += track.union_ms(spans)
             union_spans.setdefault(app_id, []).extend(spans)
-
         out: List[dict] = []
         for app_id, entry in totals.items():
             row = meta.get(app_id)
@@ -297,11 +293,12 @@ class Store:
             out = out[:limit]
         return out
 
+
     def daily_series(self, day_from: str, day_to: str) -> List[dict]:
         """按天序列（近 N 天迷你柱状图）；active_ms = 当天 fg∪bg 并集。"""
         rows = self.conn.execute(
-            """SELECT day, app_id, kind, start_ms, end_ms FROM segment
-               WHERE day BETWEEN ? AND ? ORDER BY day""",
+            "SELECT day, app_id, kind, start_ms, end_ms FROM segment"
+            " WHERE day BETWEEN ? AND ? ORDER BY day",
             (day_from, day_to),
         ).fetchall()
         grouped: dict = {}
