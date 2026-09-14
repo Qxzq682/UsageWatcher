@@ -2,7 +2,7 @@ r"""隐私与安全自证工具。
 
 它能回答一个别人最该问、也最难自证的问题：「你说不联网、不采集内容，凭什么信？」
 
-七项检查，跑完输出一份报告（可直接贴到 GitHub Issue / README）：
+八项检查，跑完输出一份报告（可直接贴到 GitHub Issue / README）：
     1. 静态扫描：源码里有没有网络调用或采集内容型数据
     2. 运行期：本进程有没有在监听端口 / 建立连接（互补于第 1 项：
        静态扫描防"代码里藏了网络调用"，netstat 防"动态加载绕过了扫描"）
@@ -11,6 +11,7 @@ r"""隐私与安全自证工具。
     5. 数据库内容：抽样打印，肉眼可核
     6. 权限：完整性级别是不是普通用户（没有提权）
     7. 依赖清单：实际装的版本 vs requirements.txt 是否一致
+    8. 数据完整性：dur 算式 / 时间顺序 / 外键悬空（库内数据自洽）
 
 用法：python.exe tools\audit.py [--pid <守护进程PID>]
 """
@@ -29,6 +30,7 @@ sys.path.insert(0, str(ROOT / "tools"))
 
 import config          # noqa: E402
 import schema          # noqa: E402
+import track           # noqa: E402
 import winutil         # noqa: E402
 import _redlines       # noqa: E402
 
@@ -220,6 +222,37 @@ def check_requirements() -> bool:
     return not bad
 
 
+def check_data_integrity() -> bool:
+    """[8] 数据完整性：dur 算式 / 时间顺序 / 外键悬空 / day 与起始时间一致。"""
+    say("[8] 数据完整性：dur 算式 / 时间顺序 / 外键悬空")
+    try:
+        from data import Store
+        store = Store()
+        rows = store.conn.execute(
+            "SELECT app_id, start_ms, end_ms, dur_ms, day FROM segment").fetchall()
+        apps = {int(r["app_id"]) for r in store.conn.execute("SELECT app_id FROM app")}
+        store.close()
+    except Exception as exc:
+        say("    [!] 读取失败：%s" % exc)
+        return False
+    bad_dur = bad_order = bad_fk = bad_day = 0
+    for row in rows:
+        start, end, dur = int(row["start_ms"]), int(row["end_ms"]), int(row["dur_ms"])
+        if end < start:
+            bad_order += 1
+        elif dur != end - start:
+            bad_dur += 1
+        if int(row["app_id"]) not in apps:
+            bad_fk += 1
+        if track.day_of(start) != str(row["day"]):
+            bad_day += 1
+    say("    片段总数 %d：dur 算式不符 %d，时间乱序 %d，app_id 悬空 %d，day 与起始不符 %d"
+        % (len(rows), bad_dur, bad_order, bad_fk, bad_day))
+    ok = not (bad_dur or bad_order or bad_fk or bad_day)
+    say("    结果：%s" % ("通过（库内数据自洽）" if ok else "不通过"))
+    return ok
+
+
 def main() -> int:
     parser = argparse.ArgumentParser()
     parser.add_argument("--pid", type=int, default=0, help="守护进程 PID（不填则自动查找）")
@@ -238,6 +271,7 @@ def main() -> int:
         ("内容抽样", check_content_sample()),
         ("未提权", check_integrity()),
         ("依赖清单一致", check_requirements()),
+        ("数据完整性", check_data_integrity()),
     ]
     say()
     say("=" * 70)

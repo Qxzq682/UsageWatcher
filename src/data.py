@@ -198,8 +198,9 @@ class Store:
                 if not app_id:
                     continue
                 for part in track.split_by_day(seg):
-                    rows.append((app_id, seg.pid, seg.kind, part.start_ms, part.end_ms,
-                                 part.dur_ms, track.day_of(part.start_ms), seg.flags))
+                    end = max(part.end_ms, part.start_ms)   # 乱序时间戳防护（BUG-16）
+                    rows.append((app_id, seg.pid, seg.kind, part.start_ms, end,
+                                 end - part.start_ms, track.day_of(part.start_ms), seg.flags))
             return rows
 
         insert_sql = ("INSERT INTO segment (app_id, pid, kind, start_ms, end_ms, dur_ms, day, flags)"

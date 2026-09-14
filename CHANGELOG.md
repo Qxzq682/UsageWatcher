@@ -27,8 +27,8 @@
 - **不提权**：只请求 `PROCESS_QUERY_LIMITED_INFORMATION`，实测可读管理员进程路径
 - **零 IPC**：命名互斥体判重；停止用标志文件通知，不开端口、不建命名管道
 - **架构约束自动化**：`tools/test_arch.py` 断言依赖方向、行数、继承层数、SQL 位置、阈值单点
-- **回归自测 53 项**：`tools/selftest.py`
-- **隐私与安全自证 7 项**：`tools/audit.py`，输出可公开的报告
+- **回归自测 75 项**：`tools/selftest.py`
+- **隐私与安全自证 8 项**：`tools/audit.py`，输出可公开的报告
 
 ### 已知缺口（计划 v0.2）
 

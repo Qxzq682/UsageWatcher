@@ -17,7 +17,6 @@
 |---|---|
 | SQL 注入 | 全部参数化查询，任何位置都不拼接 SQL（`tools/test_arch.py` 会断言 SQL 只出现在 `data.py` / `schema.py`） |
 | CSV 公式注入（导出时） | 以 `=` `+` `-` `@` 开头的单元格前置单引号转义 |
-| 路径穿越 | 图标缓存文件名用 `sha256(app_key)`，不使用应用名 |
 | 子进程参数注入 | `subprocess.Popen([...], shell=False)`，参数一律用列表传递 |
 | 外部数据当作可信 | exe 路径 / 产品名 / 发布者一律按不可信输入处理：截断 200 字符 + 控制字符换成空格 + 折叠空白 |
 | 绕过界面强行启用「不可监测」项 | 四重加固：① 界面不注册勾选框 ② 配置不占最终决定权 ③ 采集层从源头过滤 ④ 自测断言；且数据库层有 `CHECK (level <> 'no' OR enabled = 0)` 兜底 |
@@ -33,8 +32,8 @@
 
 ```bat
 python tools\test_arch.py      :: 架构约束（依赖方向、行数、SQL 位置）
-python tools\selftest.py       :: 53 项逻辑与安全回归
-python tools\audit.py          :: 隐私与安全自证（7 项）+ 生成报告
+python tools\selftest.py       :: 75 项逻辑与安全回归
+python tools\audit.py          :: 隐私与安全自证（8 项）+ 生成报告
 python tools\bench_mem.py      :: 内存与 CPU 基准
 ```
 

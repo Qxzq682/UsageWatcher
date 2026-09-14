@@ -50,8 +50,6 @@ def main() -> int:
     deadline = time.monotonic() + args.seconds if args.seconds > 0 else None
     state = {"pid": None, "since_ms": None}
 
-    watcher = collect.FgWatcher(lambda sample: None)
-
     def handle(sample: collect.Sample, source: str) -> None:
         if sample.pid == state["pid"]:
             return

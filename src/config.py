@@ -34,12 +34,6 @@ def db_path() -> Path:
     return data_dir() / "usage.db"
 
 
-def icon_dir() -> Path:
-    path = data_dir() / "icons"
-    path.mkdir(parents=True, exist_ok=True)
-    return path
-
-
 def config_path() -> Path:
     return data_dir() / "config.json"
 

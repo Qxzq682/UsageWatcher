@@ -1,0 +1,6 @@
+# 行尾统一：Python/Markdown 一律 LF（diff/review 不整文件变色），.bat 必须 CRLF（cmd 只认 CRLF）
+*.py   text eol=lf
+*.md   text eol=lf
+*.txt  text eol=lf
+*.json text eol=lf
+*.bat  text eol=crlf

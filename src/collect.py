@@ -102,7 +102,8 @@ class FgWatcher:
     def _callback(self, _hook, _event, hwnd, _obj, _child, _thread, event_tick) -> None:
         try:
             ts = _tick_to_epoch_ms(event_tick)
-            pid = winutil.pid_of_window(hwnd)
+            # 最小化瞬间事件先到、窗口已 IsIconic：不判会把"最小化"记成前台切换（BUG-15）
+            pid = winutil.pid_of_window(hwnd) if hwnd and not winutil.is_minimized(hwnd) else 0
             # 同步给轮询用，否则轮询会把同一个 PID 再报一次，
             # 并把本可精确的边界错误标成 FLAG_GUESS
             self._last_pid = pid
