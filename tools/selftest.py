@@ -359,6 +359,90 @@ def test_csv_export() -> None:
           and rows[1][5] == 75.0, str(rows[1]))
 
 
+def test_clear_all_keeps_daemon_writing() -> None:
+    print("\n[17] 清空数据后守护进程（另一 Store 实例）必须仍能写库（BUG-1 回归）")
+    folder = Path(tempfile.mkdtemp(prefix="uw_selftest_"))
+    daemon = data.Store(folder / "t.db")
+    try:
+        info = apps.AppInfo(r"c:\a\b.exe", r"c:\a\b.exe", "b.exe", "B", "", "")
+        daemon.upsert_app(info)
+        daemon.write_segments(
+            [track.Segment(info.app_key, 1, "fg", ms("10:00"), ms("10:05"))])
+        gui = data.Store(folder / "t.db")     # 模拟统计窗口：独立进程/独立实例
+        try:
+            gui.clear_all()
+        finally:
+            gui.close()
+        app_rows = daemon.conn.execute("SELECT COUNT(*) c FROM app").fetchone()["c"]
+        check("清空后 app 元数据表保留（缓存不悬空）", app_rows == 1, "app rows=%d" % app_rows)
+        n = daemon.write_segments(
+            [track.Segment(info.app_key, 1, "fg", ms("10:06"), ms("10:10"))])
+        check("清空后守护进程写段成功", n == 1, "写入 %d 行" % n)
+        check("无静默失败（error_count 不增长）", daemon.error_count == 0,
+              "error_count=%d" % daemon.error_count)
+
+        # 第二道防线：内存缓存的 app_id 与库不一致（悬空/过期）时重试必须自愈
+        daemon._app_ids[info.app_key] = 99999     # 注入悬空 app_id
+        n2 = daemon.write_segments(
+            [track.Segment(info.app_key, 1, "fg", ms("10:11"), ms("10:15"))])
+        check("缓存 app_id 悬空时重试自愈", n2 == 1, "写入 %d 行" % n2)
+        check("重试后缓存恢复为真实 app_id", daemon._app_ids.get(info.app_key) == 1,
+              str(daemon._app_ids))
+    finally:
+        daemon.close()
+
+
+def test_app_totals_fg_bg_union() -> None:
+    print("\n[18] 存储：活跃总时长 = 前台∪后台 并集（BUG-2 回归）")
+    store = _temp_store()
+    try:
+        info = apps.AppInfo(r"c:\a\c.exe", r"c:\a\c.exe", "c.exe", "C", "", "")
+        store.upsert_app(info)
+        day = track.day_of(ms("09:00"))
+        # 前台 09:00-09:10，后台 09:05-09:15 → 重叠 5 分钟，活跃总时长 = 15 分钟
+        store.write_segments([
+            track.Segment(info.app_key, 1, "fg", ms("09:00"), ms("09:10")),
+            track.Segment(info.app_key, 2, "bg", ms("09:05"), ms("09:15")),
+        ])
+        rows = store.app_totals(day, day)
+        total = rows[0]["total_ms"] if rows else -1
+        check("重叠时 total 必须为并集 15 分钟（相加则是 20 分钟）",
+              total == 15 * 60 * 1000, "实际 %s ms" % total)
+        summary = store.totals_summary(day, day)
+        check("概览合计同口径", summary["total_ms"] == 15 * 60 * 1000,
+              "实际 %s ms" % summary["total_ms"])
+        series = store.daily_series(day, day)
+        check("每日序列含 active_ms 且同口径",
+              series and series[0].get("active_ms") == 15 * 60 * 1000, str(series))
+    finally:
+        store.close()
+
+
+def test_upsert_refreshes_last_seen() -> None:
+    print("\n[19] upsert_app 缓存命中也必须按期刷新 last_seen_ms（BUG-3 回归）")
+    store = _temp_store()
+    try:
+        info = apps.AppInfo(r"c:\a\d.exe", r"c:\a\d.exe", "d.exe", "D", "", "")
+        store.upsert_app(info)
+        old = int((time.time() - 10 * 3600) * 1000)   # 拨回 10 小时前
+        store.conn.execute(
+            "UPDATE app SET last_seen_ms = ? WHERE app_key = ?", (old, info.app_key))
+        store.conn.commit()
+        store._app_seen_flush.clear()                 # 强制刷新间隔到期
+        store.upsert_app(info)                        # 走缓存命中路径
+        row = store.conn.execute(
+            "SELECT last_seen_ms FROM app WHERE app_key = ?", (info.app_key,)).fetchone()
+        check("到期后 last_seen_ms 被刷新", int(row["last_seen_ms"]) > old,
+              str(row["last_seen_ms"]))
+        before = int(row["last_seen_ms"])
+        store.upsert_app(info)                        # 立即再调用（未到期）
+        row2 = store.conn.execute(
+            "SELECT last_seen_ms FROM app WHERE app_key = ?", (info.app_key,)).fetchone()
+        check("未到期时不重复写库", int(row2["last_seen_ms"]) == before, str(before))
+    finally:
+        store.close()
+
+
 def main() -> int:
     print("=" * 68)
     print(" 自测：纯逻辑回归 + 安全红线")
@@ -379,6 +463,9 @@ def main() -> int:
     test_store_cross_thread()
     test_static_red_lines()
     test_csv_export()
+    test_clear_all_keeps_daemon_writing()
+    test_app_totals_fg_bg_union()
+    test_upsert_refreshes_last_seen()
 
     print("\n" + "=" * 68)
     print("通过 %d 项，失败 %d 项" % (PASSED, len(FAILED)))

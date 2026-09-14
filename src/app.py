@@ -302,7 +302,9 @@ class Daemon:
 
     def _known(self) -> set:
         if time.monotonic() - self._known_at > 300.0:
-            self._known_exes = self.store.known_exe_paths(24)
+            # 7 天窗口：last_seen_ms 现在由 upsert_app 周期性刷新（APP_SEEN_FLUSH_S），
+            # 放宽窗口可容忍"应用几天没被记到"的空档，避免候选池静默缩水
+            self._known_exes = self.store.known_exe_paths(7 * 24)
             self._known_at = time.monotonic()
         return self._known_exes
 

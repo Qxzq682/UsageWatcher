@@ -1,10 +1,7 @@
 """存储层：SQLite（WAL）。
 
-**SQL 只允许出现在本文件与 schema.py**，UI 层只能调用这里暴露的查询函数、
-不许自己拼 SQL —— 这条约束由 tools/test_arch.py 自动断言，
-防止迭代中长出第二套查询逻辑。
-
-安全约束：全部参数化查询（R1），禁止任何字符串拼接 SQL。
+**SQL 只允许出现在本文件与 schema.py**，UI 层只能调这里暴露的查询函数 ——
+由 tools/test_arch.py 自动断言。安全约束：全部参数化查询（R1）。
 """
 
 from __future__ import annotations
@@ -23,14 +20,9 @@ import track
 class _LockedConnection:
     """给 sqlite3 连接套一把锁，让它能安全地跨线程使用。
 
-    为什么需要：python 的 sqlite3 连接默认**绑定创建它的线程**，
-    在别的线程里用会直接抛
-    "SQLite objects created in a thread can only be used in that same thread"
-    （本项目实测踩过：Store 在主线程建、被采集工作线程用 → 采集整条链静默失效）。
-
-    做法：连接用 check_same_thread=False 打开，再用这把锁把每次调用串起来。
-    做成适配器而不是在每个方法里手写 with——那样要改 20 处，
-    而且以后新增方法忘了加锁就会重新引入这个 bug。
+    sqlite3 连接默认绑定创建线程，本项目实测踩过：主线程建、工作线程用
+    → ProgrammingError → 采集链静默失效。check_same_thread=False + 这把锁
+    做成适配器，所有现有调用自动线程安全（而不是 20 处手写 with）。
     """
 
     def __init__(self, conn: sqlite3.Connection, lock: threading.RLock) -> None:
@@ -76,15 +68,12 @@ class Store:
         self.conn.executescript(schema.SCHEMA_SQL)
         self.conn.commit()
         self._app_ids: dict = {}
+        self._app_seen_flush: dict = {}   # app_key -> 上次回写 last_seen_ms 的时刻
         self.error_count = 0     # R8：写库失败必须可见
 
     def _apply_pragmas(self) -> None:
-        for pragma in (
-            "PRAGMA journal_mode=WAL",
-            "PRAGMA synchronous=NORMAL",
-            "PRAGMA foreign_keys=ON",
-            "PRAGMA busy_timeout=5000",
-        ):
+        for pragma in ("PRAGMA journal_mode=WAL", "PRAGMA synchronous=NORMAL",
+                       "PRAGMA foreign_keys=ON", "PRAGMA busy_timeout=5000"):
             try:
                 self.conn.execute(pragma)
             except sqlite3.Error:
@@ -100,11 +89,27 @@ class Store:
     # ------------------------------------------------------------ 应用元信息
 
     def upsert_app(self, info) -> int:
-        """写入或更新应用元信息，返回 app_id。"""
+        """写入或更新应用元信息，返回 app_id。
+
+        缓存命中也要按 APP_SEEN_FLUSH_S 间隔回写 last_seen_ms：它是后台
+        候选池（known_exe_paths）的依据，永不刷新会让无窗口应用在守护进程
+        跑过窗口期后从候选池静默消失（实测复现过）。
+        """
         cached = self._app_ids.get(info.app_key)
-        if cached is not None:
-            return cached
         now = int(time.time() * 1000)
+        if cached is not None:
+            last = self._app_seen_flush.get(info.app_key, 0)
+            if now - last >= config.APP_SEEN_FLUSH_S * 1000:
+                try:
+                    self.conn.execute(
+                        "UPDATE app SET last_seen_ms = ? WHERE app_key = ?",
+                        (now, info.app_key),
+                    )
+                    self.conn.commit()
+                    self._app_seen_flush[info.app_key] = now
+                except sqlite3.Error:
+                    self.error_count += 1
+            return cached
         self.conn.execute(
             """INSERT INTO app (app_key, exe_path, exe_name, display_name, version,
                                 publisher, first_seen_ms, last_seen_ms)
@@ -121,12 +126,14 @@ class Store:
         ).fetchone()
         app_id = int(row["app_id"]) if row else 0
         self._app_ids[info.app_key] = app_id
+        self._app_seen_flush[info.app_key] = now
         return app_id
 
     def app_key_to_id(self) -> dict:
         if not self._app_ids:
             rows = self.conn.execute("SELECT app_id, app_key FROM app").fetchall()
             self._app_ids = {r["app_key"]: int(r["app_id"]) for r in rows}
+            self._app_seen_flush.clear()   # 缓存重建 = 时间戳作废，下次命中按需重写
         return self._app_ids
 
     def known_exe_paths(self, hours: int = 24) -> set:
@@ -185,32 +192,45 @@ class Store:
     # ------------------------------------------------------------ 写片段
 
     def write_segments(self, segments: Iterable, app_key_to_id: Optional[dict] = None) -> int:
-        """批量写入片段。跨零点的片段在这里按天拆开。
+        """批量写入片段（跨零点按天拆开）。
 
-        只在片段闭合时调用（不是每秒），所以一次事务写完即可。
+        外键冲突（内存缓存的 app_id 与库不一致）时：回滚 → 清缓存重建 → 重试
+        一次。没有这层重试，一次"清空数据"类操作会让缓存悬空，之后**所有**
+        片段都被外键静默拒绝（实测复现过）。
         """
-        mapping = app_key_to_id or self.app_key_to_id()
-        rows = []
-        for seg in segments:
-            app_id = mapping.get(seg.app_key)
-            if not app_id:
-                continue
-            for part in track.split_by_day(seg):
-                rows.append((app_id, seg.pid, seg.kind, part.start_ms, part.end_ms,
-                             part.dur_ms, track.day_of(part.start_ms), seg.flags))
-        if not rows:
-            return 0
-        try:
-            self.conn.executemany(
-                """INSERT INTO segment (app_id, pid, kind, start_ms, end_ms, dur_ms, day, flags)
-                   VALUES (?, ?, ?, ?, ?, ?, ?, ?)""",
-                rows,
-            )
-            self.conn.commit()
-            return len(rows)
-        except sqlite3.Error:
-            self.error_count += 1
-            return 0
+        def build(mapping: dict) -> list:
+            rows = []
+            for seg in segments:
+                app_id = mapping.get(seg.app_key)
+                if not app_id:
+                    continue
+                for part in track.split_by_day(seg):
+                    rows.append((app_id, seg.pid, seg.kind, part.start_ms, part.end_ms,
+                                 part.dur_ms, track.day_of(part.start_ms), seg.flags))
+            return rows
+
+        insert_sql = ("INSERT INTO segment (app_id, pid, kind, start_ms, end_ms,"
+                      " dur_ms, day, flags) VALUES (?, ?, ?, ?, ?, ?, ?, ?)")
+        rows = build(app_key_to_id or self.app_key_to_id())
+        for attempt in (0, 1):
+            if not rows:
+                return 0
+            try:
+                self.conn.executemany(insert_sql, rows)
+                self.conn.commit()
+                return len(rows)
+            except sqlite3.IntegrityError:
+                self.error_count += 1
+                if attempt:
+                    return 0
+                self.conn.rollback()
+                self._app_ids = {}
+                rows = build(self.app_key_to_id())
+            except sqlite3.Error:
+                self.error_count += 1
+                self.conn.rollback()
+                return 0
+        return 0
 
     def log_event(self, ev_type: str, pid: int = 0, app_id: int = 0, detail: str = "") -> None:
         try:
@@ -239,10 +259,11 @@ class Store:
         return grouped
 
     def app_totals(self, day_from: str, day_to: str, limit: int = 0) -> List[dict]:
-        """周期内每个应用的前台/后台时长。
+        """周期内每个应用的前台/后台/活跃总时长，**全部用区间并集**。
 
-        前台与后台都用**区间并集**计算：同一应用多进程的区间会重叠，
-        直接求和会虚高（Chrome 类应用尤其严重）。
+        同类多进程区间重叠（Chrome 类虚高数倍）；前台与后台之间也重叠
+        （前台窗口的进程几乎必然同时在耗 CPU/IO），所以 total 是 fg∪bg
+        的大并集，不是两者相加 —— 相加实测虚高过 80%。
         """
         grouped = self._intervals(day_from, day_to)
         meta = {
@@ -252,16 +273,18 @@ class Store:
             ).fetchall()
         }
         totals: dict = {}
+        union_spans: dict = {}
         for (app_id, kind), spans in grouped.items():
             entry = totals.setdefault(app_id, {"fg_ms": 0, "bg_ms": 0})
             entry["fg_ms" if kind == "fg" else "bg_ms"] += track.union_ms(spans)
+            union_spans.setdefault(app_id, []).extend(spans)
 
         out: List[dict] = []
         for app_id, entry in totals.items():
             row = meta.get(app_id)
             if row is None:
                 continue
-            total = entry["fg_ms"] + entry["bg_ms"]
+            total = track.union_ms(union_spans.get(app_id, []))
             out.append({
                 "app_key": row["app_key"],
                 "display_name": row["display_name"] or row["exe_name"] or row["app_key"],
@@ -278,7 +301,7 @@ class Store:
         return out
 
     def daily_series(self, day_from: str, day_to: str) -> List[dict]:
-        """按天序列（用于近 N 天迷你柱状图）。"""
+        """按天序列（近 N 天迷你柱状图）；active_ms = 当天 fg∪bg 并集。"""
         rows = self.conn.execute(
             """SELECT day, app_id, kind, start_ms, end_ms FROM segment
                WHERE day BETWEEN ? AND ? ORDER BY day""",
@@ -292,33 +315,35 @@ class Store:
         for (day, kind), spans in grouped.items():
             entry = per_day.setdefault(day, {"day": day, "fg_ms": 0, "bg_ms": 0})
             entry["fg_ms" if kind == "fg" else "bg_ms"] += track.union_ms(spans)
+        for (day, _kind), spans in grouped.items():   # fg∪bg 大并集（不分 kind）
+            merged = per_day[day].setdefault("_spans", [])
+            merged.extend(spans)
+        for entry in per_day.values():
+            entry["active_ms"] = track.union_ms(entry.pop("_spans"))
         return [per_day[d] for d in sorted(per_day)]
 
     def totals_summary(self, day_from: str, day_to: str) -> dict:
         series = self.daily_series(day_from, day_to)
         fg = sum(d["fg_ms"] for d in series)
         bg = sum(d["bg_ms"] for d in series)
-        return {"fg_ms": fg, "bg_ms": bg, "total_ms": fg + bg,
-                "fg_ratio": (fg / (fg + bg)) if (fg + bg) else 0.0}
+        active = sum(d["active_ms"] for d in series)
+        return {"fg_ms": fg, "bg_ms": bg, "total_ms": active,
+                "fg_ratio": (fg / active) if active else 0.0}
 
     def sample_content(self, limit: int = 10) -> dict:
-        """给 audit 用：抽样打印库里的实际内容，让人肉眼看「到底存了什么」。"""
+        """给 audit 用：抽样库里的实际内容，让人肉眼看「到底存了什么」。"""
         return {
             "app": [dict(r) for r in self.conn.execute(
-                "SELECT app_id, app_key, display_name, exe_name, publisher FROM app LIMIT ?",
-                (limit,)).fetchall()],
+                "SELECT app_id, app_key, display_name, exe_name, publisher"
+                " FROM app LIMIT ?", (limit,)).fetchall()],
             "segment": [dict(r) for r in self.conn.execute(
-                "SELECT seg_id, app_id, pid, kind, start_ms, end_ms, dur_ms, day FROM segment LIMIT ?",
-                (limit,)).fetchall()],
+                "SELECT seg_id, app_id, pid, kind, start_ms, end_ms, dur_ms, day"
+                " FROM segment LIMIT ?", (limit,)).fetchall()],
         }
 
     def table_columns(self) -> dict:
         out = {}
-        for table in schema.ALLOWED_COLUMNS:
-            # PRAGMA 不支持参数占位符，只能拼表名；因此先做白名单守卫，
-            # 拼进去的一定是代码里写死的表名，不含任何外部输入（R1）
-            if table not in schema.ALLOWED_COLUMNS:
-                continue
+        for table in schema.ALLOWED_COLUMNS:   # 遍历的就是白名单本身（R1）
             try:
                 rows = self.conn.execute(f"PRAGMA table_info({table})").fetchall()
                 out[table] = [str(r["name"]) for r in rows]
@@ -358,12 +383,16 @@ class Store:
         self.conn.commit()
 
     def clear_all(self) -> None:
-        """一键清空数据（隐私页用）。只删记录，不碰表结构。"""
+        """一键清空使用记录（隐私页用）：只删 segment/event，保留 app 元数据表。
+
+        清空"使用记录"不该丢"这台机器上有哪些软件"；更关键的是守护进程与
+        统计窗口是两个进程，删掉 app 行会让守护进程缓存的 app_id 悬空，
+        之后每次写库都被外键拒绝且无提示（实测：静默丢光后续记录）。
+        """
         # 表名写死成字面量，不做任何拼接 —— 这段代码不接受外部输入（R1）
         self.conn.execute("DELETE FROM segment")
         self.conn.execute("DELETE FROM event")
-        self.conn.execute("DELETE FROM app_capability")
-        self.conn.execute("DELETE FROM app")
         self.conn.commit()
         self.conn.execute("VACUUM")
         self._app_ids = {}
+        self._app_seen_flush = {}

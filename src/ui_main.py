@@ -54,7 +54,7 @@ def _csv_safe(text: str) -> str:
 
 def csv_rows(rows: list) -> list:
     """把 app_totals 的行转成 CSV 单元格（含表头），纯函数便于回归。"""
-    out = [("应用", "可执行文件", "前台(分钟)", "后台活跃(分钟)", "合计(分钟)", "前台占比%")]
+    out = [("应用", "可执行文件", "前台(分钟)", "后台活跃(分钟)", "活跃总时长(分钟)", "前台占比%")]
     for r in rows:
         out.append((
             _csv_safe(r["display_name"]),
@@ -87,7 +87,7 @@ def period_range(period: str) -> tuple:
 # ---------------------------------------------------------------- 排行表
 
 class RankModel(QAbstractTableModel):
-    HEADERS = ("应用", "前台", "后台活跃", "合计", "前台占比")
+    HEADERS = ("应用", "前台", "后台活跃", "活跃总时长", "前台占比")
 
     def __init__(self) -> None:
         super().__init__()
@@ -309,7 +309,7 @@ class MainWindow(QMainWindow):
         day_from, day_to = period_range(self.period.currentText())
         rows = self.store.app_totals(day_from, day_to, limit=config.load()["rank_limit"])
         summary = self.store.totals_summary(day_from, day_to)
-        self.summary.setText("合计 %s　其中前台 %s（%.0f%%）" % (
+        self.summary.setText("活跃总时长 %s　其中前台 %s（%.0f%%）" % (
             fmt_duration(summary["total_ms"]), fmt_duration(summary["fg_ms"]),
             summary["fg_ratio"] * 100))
         self.model.set_rows(rows)
