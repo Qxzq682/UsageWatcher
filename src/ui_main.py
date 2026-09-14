@@ -282,7 +282,8 @@ class MainWindow(QMainWindow):
         stats_layout.addWidget(QLabel("各应用前台 / 后台活跃时长（蓝=前台，灰=后台活跃）"))
         stats_layout.addWidget(self.bars)
         stats_layout.addWidget(self.table, 1)
-        stats_layout.addWidget(QLabel("近 30 天每日总时长"))
+        self.daily_title = QLabel("每日总时长")
+        stats_layout.addWidget(self.daily_title)
         stats_layout.addWidget(self.daily)
 
         import ui_scope
@@ -314,8 +315,16 @@ class MainWindow(QMainWindow):
             summary["fg_ratio"] * 100))
         self.model.set_rows(rows)
         self.bars.set_rows(rows)
-        self.daily.set_days(self.store.daily_series(
-            (date.today() - timedelta(days=29)).isoformat(), date.today().isoformat()))
+        # 柱状图跟随周期（BUG-7）：今日/本周只有 1~几天，单独画没有信息量，
+        # 固定近 7 天；本月/近 30 天周期够长，直接跟随周期整体。
+        period = self.period.currentText()
+        if period in ("今日", "本周"):
+            chart_from = (date.today() - timedelta(days=6)).isoformat()
+            self.daily_title.setText("近 7 天每日总时长")
+        else:
+            chart_from = day_from
+            self.daily_title.setText(period + "每日总时长")
+        self.daily.set_days(self.store.daily_series(chart_from, day_to))
         self._update_hint(rows)
 
     def _update_hint(self, rows: list) -> None:

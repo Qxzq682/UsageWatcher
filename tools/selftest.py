@@ -443,6 +443,34 @@ def test_upsert_refreshes_last_seen() -> None:
         store.close()
 
 
+def test_reset_recheckable() -> None:
+    print("\n[20] 重新检测真重置：误判 no 降回待重检，system 保持锁死（BUG-6 回归）")
+    store = _temp_store()
+    try:
+        store.upsert_capability(apps.Capability("c:\\a\\x.exe", "no", "读不到", "third_party", False))
+        store.upsert_capability(apps.Capability("name:svc", "no", "系统服务", "system", False))
+        store.upsert_capability(apps.Capability("c:\\a\\y.exe", "partial", "浏览器", "third_party", True))
+        reset = store.reset_recheckable()
+        check("只重置非系统的 no 行", reset == 1, str(reset))
+        row = store.conn.execute(
+            "SELECT level, reason, enabled FROM app_capability WHERE app_key = ?",
+            ("c:\\a\\x.exe",)).fetchone()
+        check("误判项降回 partial", row["level"] == "partial", row["level"])
+        check("恢复默认勾选（第三方=1）", int(row["enabled"]) == 1, str(row["enabled"]))
+        check("原因改为待重新检测", row["reason"] == data.RECHECK_PENDING, row["reason"])
+        row2 = store.conn.execute(
+            "SELECT level FROM app_capability WHERE app_key = ?", ("name:svc",)).fetchone()
+        check("system 保持锁死", row2["level"] == "no", row2["level"])
+        row3 = store.conn.execute(
+            "SELECT level, reason FROM app_capability WHERE app_key = ?",
+            ("c:\\a\\y.exe",)).fetchone()
+        check("原有 partial 行不受影响", row3["reason"] == "浏览器", row3["reason"])
+        pending = store.recheck_pending_keys()
+        check("待重检集合只含重置项", pending == {"c:\\a\\x.exe"}, str(pending))
+    finally:
+        store.close()
+
+
 def main() -> int:
     print("=" * 68)
     print(" 自测：纯逻辑回归 + 安全红线")
@@ -466,6 +494,7 @@ def main() -> int:
     test_clear_all_keeps_daemon_writing()
     test_app_totals_fg_bg_union()
     test_upsert_refreshes_last_seen()
+    test_reset_recheckable()
 
     print("\n" + "=" * 68)
     print("通过 %d 项，失败 %d 项" % (PASSED, len(FAILED)))

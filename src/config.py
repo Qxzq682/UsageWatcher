@@ -75,6 +75,7 @@ CANDIDATE_REBUILD_S = 10.0        # 候选集合重建周期
 FLUSH_INTERVAL_S = 60.0           # 攒批写库周期
 UNMONITORABLE_FAIL_N = 3          # 连续 N 次读路径失败才定性「不可监测」
 APP_SEEN_FLUSH_S = 300            # 缓存命中时至少间隔这么久才回写一次 last_seen_ms
+PID_KEY_TTL_S = 600               # pid->app 缓存有效期（Windows 会复用 PID，防张冠李戴）
 UI_REFRESH_INTERVAL_S = 5         # 统计窗口自动刷新周期（片段落库有延迟，太快没意义）
 
 # 片段 flags 位含义（与 data.py 的 CHECK 无关，仅语义）

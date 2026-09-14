@@ -71,7 +71,9 @@ class ScopePage(QWidget):
         layout = QVBoxLayout(self)
         layout.addWidget(QLabel(
             "打勾 = 记录这个软件的时长。标为「不可监测」的行已被锁定 —— "
-            "技术上拿不到归属信息（系统拒绝访问），所以无法勾选。"))
+            "技术上拿不到归属信息（系统拒绝访问），所以无法勾选。\n"
+            "「重新检测」会把误判的项放回待重检状态，守护进程下次探测到时自动重新定性"
+            "（系统组件保持锁死）。"))
         layout.addLayout(top)
         layout.addWidget(self.table, 1)
         layout.addWidget(self.status)
@@ -80,7 +82,7 @@ class ScopePage(QWidget):
         self.search.textChanged.connect(self.reload)
         self.btn_all.clicked.connect(lambda: self._bulk(True))
         self.btn_none.clicked.connect(lambda: self._bulk(False))
-        self.btn_recheck.clicked.connect(self.reload)
+        self.btn_recheck.clicked.connect(self._recheck)
         self.table.itemChanged.connect(self._on_item_changed)
         self.reload()
 
@@ -148,6 +150,20 @@ class ScopePage(QWidget):
                             % (len(self._rows), checked, locked))
 
     # ---- 交互 ----
+
+    def _recheck(self) -> None:
+        """真重置（BUG-6）：把误判的「不可监测」降回待重检，而不是只重画表格。"""
+        reset = self.store.reset_recheckable()
+        self.reload()
+        if reset:
+            QMessageBox.information(
+                self, "重新检测",
+                "已把 %d 个「不可监测」项重置为待重检状态。\n\n"
+                "守护进程下次探测到它们时会自动重新定性；若仍读不到，会如实写回「不可监测」。"
+                % reset)
+        else:
+            QMessageBox.information(
+                self, "重新检测", "当前没有可重新检测的「不可监测」项（系统组件保持锁死）。")
 
     def _on_item_changed(self, item: QTableWidgetItem) -> None:
         if item.column() != 3:

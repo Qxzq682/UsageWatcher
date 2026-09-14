@@ -1,12 +1,7 @@
-"""程序入口。
-
-三种模式（靠命令行参数分流，同一个脚本）：
-    无参数      采集守护进程（**不加载 PySide6**，常驻约 35MB）
-    --gui       统计窗口（独立的 PySide6 进程，关窗即退出、内存释放）
-    --smoke     自检模式，跑几秒自动退出（给自动化验证用）
-
-线程模型：主线程 = Win32 消息循环（WinEvent 回调/托盘/电源通知），
-工作线程 = 采集与写库。UI/托盘永远不会被磁盘 I/O 卡住。
+"""程序入口。三种模式（命令行参数分流）：无参数 = 采集守护进程（不加载
+PySide6，常驻约 35MB）；--gui = 统计窗口（独立进程，关窗即退出）；
+--smoke = 自检（跑几秒自动退出）。主线程跑 Win32 消息循环（回调/托盘/
+电源通知），工作线程采集与写库，UI/托盘永不被磁盘 I/O 卡住。
 """
 
 from __future__ import annotations
@@ -27,6 +22,7 @@ import data      # noqa: E402
 import track     # noqa: E402
 import sysmsg    # noqa: E402
 import tray      # noqa: E402
+import winutil   # noqa: E402
 
 _MUTEX_NAME = "Global\\UsageWatcher_SingleInstance_"
 _mutex_handles: list = []      # 互斥体句柄要保活，进程退出由系统回收
@@ -71,14 +67,14 @@ class Daemon:
         self.icon = None
         self._pending: list = []
         self._pending_lock = threading.Lock()   # 主线程/工作线程都写 _pending（BUG-9）
-        self._last_flush = time.monotonic()
         self._last_trim, self._last_housekeep = 0.0, 0.0
-        self._last_maint = time.monotonic()     # 启动时已跑过一次 maintenance
+        self._last_flush = self._last_maint = time.monotonic()   # maint: 启动已跑过一次
         self._enabled: dict = {}
         self._enabled_at = 0.0
+        self._cap_written: set = set()      # 结论只写一次，防覆盖 UI 的重置（BUG-6）
+        self._recheck_pending: set = set()  # 等待重探的应用；采样到即强制重写结论
         self._known_exes: set = set()
-        self._known_at = 0.0
-        self._worker = None
+        self._known_at, self._worker = 0.0, None
 
     # ---------------------------------------------------- 生命周期
 
@@ -99,10 +95,8 @@ class Daemon:
         self.power.register(self.window.hwnd)
         self.window.on(tray.WM_COMMAND, self._on_command)
         # 消息 id 绑进 lambda，避免处理器里再猜"这条消息是哪一个"
-        self.window.on(sysmsg.WM_POWERBROADCAST,
-                       lambda wp, lp: self._on_power(sysmsg.WM_POWERBROADCAST, wp))
-        self.window.on(sysmsg.WM_WTSSESSION_CHANGE,
-                       lambda wp, lp: self._on_power(sysmsg.WM_WTSSESSION_CHANGE, wp))
+        self.window.on(sysmsg.WM_POWERBROADCAST, lambda wp, lp: self._on_power(sysmsg.WM_POWERBROADCAST, wp))
+        self.window.on(sysmsg.WM_WTSSESSION_CHANGE, lambda wp, lp: self._on_power(sysmsg.WM_WTSSESSION_CHANGE, wp))
         self.store.maintenance()
         self._worker = threading.Thread(target=self._loop, name="collector", daemon=True)
         self._worker.start()
@@ -130,17 +124,14 @@ class Daemon:
             self.icon.set_tooltip("已暂停统计")
             return
         d = track.day_of(_now_ms()); s = self.store.totals_summary(d, d)
-        tip = "%s\n今日前台 %s · 后台 %s" % (
-            config.APP_TITLE, _fmt_duration(s["fg_ms"]), _fmt_duration(s["bg_ms"]))
+        tip = "%s\n今日前台 %s · 后台 %s" % (config.APP_TITLE, _fmt_duration(s["fg_ms"]), _fmt_duration(s["bg_ms"]))
         if self.store.error_count:
             tip += "\n[!] 采集异常 %d 次" % self.store.error_count
         self.icon.set_tooltip(tip)
 
     def stop_and_flush(self) -> None:
-        """停采集 + 等工作线程收尾 + **先闭合还开着的片段**再落库。
-
-        不闭合就退出会丢掉"用户正在用的那一段"（自检表现为"记录 0 个应用"）。
-        """
+        """停采集 + 等工作线程收尾 + 先闭合还开着的片段再落库（不闭合会丢
+        "用户正在用的那一段"，自检表现为"记录 0 个应用"）。"""
         self.stop_event.set()
         if self._worker and self._worker.is_alive():
             self._worker.join(timeout=3)
@@ -225,7 +216,6 @@ class Daemon:
     # ---------------------------------------------------- 采集工作线程
 
     def _loop(self) -> None:
-        import winutil
         winutil.set_below_normal_priority()
         while not self.stop_event.is_set():
             try:
@@ -259,8 +249,7 @@ class Daemon:
         now_ms = _now_ms()
         for sample in self.fg.drain():
             self._handle_fg(sample)
-        polled = self.fg.poll()
-        if polled is not None:
+        if (polled := self.fg.poll()) is not None:
             self._handle_fg(polled)
 
         if self.sampler.due(time.monotonic()):
@@ -301,13 +290,20 @@ class Daemon:
 
     def _register(self, info) -> bool:
         """写入元信息并决定是否采集。最终决定权在 app_capability 表
-        （level='no' 恒 enabled=0），手工改配置也绕不过。"""
+        （level='no' 恒 enabled=0），手工改配置也绕不过。结论每个应用只写
+        一次；「重新检测」过的例外，采样到即重写一次重探结论（读不到会
+        如实写回 no）。绝不能恒重写，否则内存 fail_count 会把 UI 的重置
+        立刻覆盖回 no（BUG-6）。
+        """
         self.store.upsert_app(info)
         cap = apps.capability_of(info, self.resolver.fail_count(info.app_key))
-        if self._enabled.get(info.app_key) is None or cap.level == "no":
+        if info.app_key not in self._cap_written or info.app_key in self._recheck_pending:
+            self._cap_written.add(info.app_key)
+            self._recheck_pending.discard(info.app_key)
             self.store.upsert_capability(cap)
         if time.monotonic() - self._enabled_at > 30.0:
             self._enabled = {key: True for key in self.store.enabled_keys()}
+            self._recheck_pending = self.store.recheck_pending_keys()
             self._enabled_at = time.monotonic()
         if cap.level == "no":
             return False
@@ -325,8 +321,7 @@ class Daemon:
     def flush(self, force: bool = False) -> None:
         due = time.monotonic() - self._last_flush >= config.FLUSH_INTERVAL_S
         with self._pending_lock:
-            n = len(self._pending)
-            if not n or not (force or due or n >= 50):
+            if not self._pending or not (force or due or len(self._pending) >= 50):
                 return
             batch, self._pending = self._pending, []   # 原子交换：杜绝交错丢段
         segments = track.finalize(batch)
@@ -340,7 +335,6 @@ class Daemon:
         if time.monotonic() - self._last_trim < config.EMPTY_WORKING_SET_INTERVAL_S:
             return
         self._last_trim = time.monotonic()
-        import winutil
         winutil.empty_working_set()
 
 
@@ -351,7 +345,6 @@ def _now_ms() -> int:
 
 
 def _user_sid() -> str:
-    import winutil
     return winutil.current_user_sid() or "unknown"
 
 
@@ -363,13 +356,11 @@ def _fmt_duration(ms: int) -> str:
 def run_gui(smoke: bool = False) -> int:
     """统计窗口（独立进程，关窗即退出）；延迟导入 PySide6，守护模式永不加载 Qt。"""
     import ui_main
-    import winutil
     sid = _user_sid()
     # 统计窗口自己的单实例：重复点「打开统计窗口」时第二个进程直接退（BUG-13）
     if not _acquire_mutex("Local\\UsageWatcher_GUI_" + sid):
         return 0
-    name = _MUTEX_NAME + sid
-    return ui_main.run(smoke=smoke, daemon_alive=lambda: winutil.mutex_alive(name))
+    return ui_main.run(smoke=smoke, daemon_alive=lambda: winutil.mutex_alive(_MUTEX_NAME + sid))
 
 
 def main(argv: list) -> int:
@@ -381,14 +372,12 @@ def main(argv: list) -> int:
         print("程序已在运行，正在打开统计窗口…")
         run_gui()          # 不再起第二个采集器，直接把统计窗口拉起来
         return 0
-    daemon = Daemon()
     print("%s v%s 正在后台采集。托盘图标可右键操作。" % (config.APP_TITLE, config.APP_VERSION))
-    return daemon.run()
+    return Daemon().run()
 
 
 def _smoke_run(seconds: float = 8.0) -> int:
-    """自检交给 tools/smoke_daemon.py —— 诊断工具不占生产代码。
-    只有真用到 --smoke 才把 tools 加进 sys.path。"""
+    """自检交给 tools/smoke_daemon.py；只有真用到 --smoke 才把 tools 加进 sys.path。"""
     tools_dir = os.path.join(os.path.dirname(os.path.dirname(os.path.abspath(__file__))), "tools")
     if tools_dir not in sys.path:
         sys.path.insert(0, tools_dir)

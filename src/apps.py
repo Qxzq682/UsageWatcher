@@ -9,6 +9,7 @@ exe 路径、产品名、发布者都来自别人的文件元数据，一律按�
 from __future__ import annotations
 
 import os
+import time
 from dataclasses import dataclass
 from typing import Optional
 
@@ -184,11 +185,12 @@ class Resolver:
 
     def __init__(self) -> None:
         self._by_key: dict = {}      # app_key -> AppInfo
-        self._pid_key: dict = {}     # pid -> app_key
+        self._pid_key: dict = {}     # pid -> (app_key, 记录时刻)；TTL 防 PID 复用张冠李戴
         self._fails: dict = {}       # app_key -> 连续失败次数
 
     def resolve(self, pid: int, fallback_name: str = "") -> AppInfo:
-        cached_key = self._pid_key.get(pid)
+        cached = self._pid_key.get(pid)
+        cached_key = cached[0] if cached and time.monotonic() - cached[1] < config.PID_KEY_TTL_S else None
         if cached_key and cached_key in self._by_key:
             return self._by_key[cached_key]
 
@@ -218,7 +220,7 @@ class Resolver:
             )
             self._by_key[key] = info
 
-        self._pid_key[pid] = key
+        self._pid_key[pid] = (key, time.monotonic())
         return info
 
     def fail_count(self, app_key: str) -> int:
