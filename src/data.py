@@ -331,10 +331,15 @@ class Store:
     # ------------------------------------------------------------ 维护
 
     def maintenance(self) -> None:
-        """清理过期事件 + 按需 VACUUM。启动时与每 24h 调用一次。"""
+        """清理过期事件、name:pid 垃圾行 + 按需 VACUUM。启动时与每 24h 调用一次。"""
         cutoff = int((time.time() - config.EVENT_KEEP_DAYS * 86400) * 1000)
         try:
             self.conn.execute("DELETE FROM event WHERE ts_ms < ?", (cutoff,))
+            # 历史遗留的 name:pid-N 垃圾行（BUG-28）：从未采集、无 segment 引用，删除安全
+            self.conn.execute("DELETE FROM app_capability WHERE app_key LIKE 'name:pid-%'")
+            self.conn.execute(
+                "DELETE FROM app WHERE app_key LIKE 'name:pid-%'"
+                " AND app_id NOT IN (SELECT app_id FROM segment)")
             self.conn.commit()
         except sqlite3.Error:
             self.error_count += 1

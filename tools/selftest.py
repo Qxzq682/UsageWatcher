@@ -471,6 +471,50 @@ def test_reset_recheckable() -> None:
         store.close()
 
 
+def test_fg_monotonic_no_overlap() -> None:
+    print("\n[21] 前台时间戳乱序不得产出重叠片段（BUG-26 回归）")
+    fg = track.FgTracker()
+    base = 1_000_000
+    out: list = []
+    out += fg.on_fg("a", 1, base)               # 正常开段
+    out += fg.on_fg("b", 2, base + 5000)        # 正常切换
+    out += fg.on_fg("c", 3, base + 13_533)      # 正常切换
+    out += fg.on_fg("b", 2, base + 2000)        # 迟到事件：时间戳倒退 11.5 秒
+    out += fg.on_fg("d", 4, base + 20_000)      # 正常切换
+    out += fg.force_close(base + 30_000, 0)
+    # b 的两条段会被 finalize 合并成 b[5000,20000]，c 的零长段被 MIN_SEG_MS 丢弃
+    segs = track.finalize(out)
+    ordered = sorted(segs, key=lambda s: s.start_ms)
+    overlap = sum(
+        1 for i in range(1, len(ordered)) for j in range(i)
+        if ordered[i].start_ms < ordered[j].end_ms)
+    check("乱序下仍产出有效片段", len(segs) == 3, str(len(segs)))
+    check("任意两段时间轴不重叠", overlap == 0, str(overlap))
+    check("无反向边界（end >= start）",
+          all(s.end_ms >= s.start_ms for s in segs), "ok")
+
+
+def test_maintenance_cleans_junk() -> None:
+    print("\n[22] maintenance 清理 name:pid 垃圾条目（BUG-28 回归）")
+    store = _temp_store()
+    try:
+        store.upsert_app(apps.AppInfo("name:pid-999", "", "pid-999", "pid-999", "", ""))
+        store.upsert_capability(apps.Capability("name:pid-999", "no", "读不到", "third_party", False))
+        store.upsert_app(apps.AppInfo(r"c:\a\ok.exe", r"c:\a\ok.exe", "ok.exe", "OK", "", ""))
+        store.maintenance()
+        n = store.conn.execute(
+            "SELECT COUNT(*) c FROM app WHERE app_key LIKE 'name:pid-%'").fetchone()["c"]
+        check("垃圾 app 行被清理", n == 0, str(n))
+        n = store.conn.execute(
+            "SELECT COUNT(*) c FROM app_capability WHERE app_key LIKE 'name:pid-%'").fetchone()["c"]
+        check("垃圾 capability 行被清理", n == 0, str(n))
+        n = store.conn.execute(
+            "SELECT COUNT(*) c FROM app WHERE app_key = 'c:\\a\\ok.exe'").fetchone()["c"]
+        check("正常行不受影响", n == 1, str(n))
+    finally:
+        store.close()
+
+
 def main() -> int:
     print("=" * 68)
     print(" 自测：纯逻辑回归 + 安全红线")
@@ -495,6 +539,8 @@ def main() -> int:
     test_app_totals_fg_bg_union()
     test_upsert_refreshes_last_seen()
     test_reset_recheckable()
+    test_fg_monotonic_no_overlap()
+    test_maintenance_cleans_junk()
 
     print("\n" + "=" * 68)
     print("通过 %d 项，失败 %d 项" % (PASSED, len(FAILED)))

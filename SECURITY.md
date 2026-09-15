@@ -32,7 +32,7 @@
 
 ```bat
 python tools\test_arch.py      :: 架构约束（依赖方向、行数、SQL 位置）
-python tools\selftest.py       :: 75 项逻辑与安全回归
+python tools\selftest.py       :: 81 项逻辑与安全回归
 python tools\audit.py          :: 隐私与安全自证（8 项）+ 生成报告
 python tools\bench_mem.py      :: 内存与 CPU 基准
 ```

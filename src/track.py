@@ -105,6 +105,10 @@ class FgTracker:
         self._start_ms: int = 0
 
     def on_fg(self, app_key: str, pid: int, ts_ms: int, guessed: bool = False) -> List[Segment]:
+        if self._app_key is not None and ts_ms < self._start_ms:
+            # 迟到的 WinEvent 经 _tick_to_epoch_ms 换算出倒退的时间戳（事件排队越久越早），
+            # 不夹住会把新段起点压进旧段区间 → 跨应用前台重叠被重复计时（BUG-26）
+            ts_ms = self._start_ms
         if app_key == self._app_key and pid == self._pid:
             return []
         out: List[Segment] = []
@@ -117,7 +121,8 @@ class FgTracker:
     def force_close(self, ts_ms: int, flag: int) -> List[Segment]:
         if self._app_key is None:
             return []
-        seg = Segment(self._app_key, self._pid, "fg", self._start_ms, ts_ms, flag)
+        seg = Segment(self._app_key, self._pid, "fg", self._start_ms,
+                      max(ts_ms, self._start_ms), flag)
         self._app_key = None
         self._pid = 0
         return [seg]

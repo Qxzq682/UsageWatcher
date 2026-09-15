@@ -202,7 +202,9 @@ class DailyBars(QWidget):
             painter.setPen(QPen(COLOR_MUTED))
             painter.drawText(self.rect(), Qt.AlignCenter, "暂无数据")
             return
-        peak = max((d["fg_ms"] + d["bg_ms"] for d in self.days), default=1) or 1
+        # 柱高与峰值必须用 active_ms（fg∪bg 并集口径，与统计页一致）；
+        # 用 fg+bg 相加会让柱子虚高、多日被虚高峰值整体压扁（BUG-27）
+        peak = max((d["active_ms"] for d in self.days), default=1) or 1
         slot = self.width() / max(len(self.days), 1)
         bar_width = min(slot * 0.5, 34)
         base = self.height() - 20
@@ -210,7 +212,7 @@ class DailyBars(QWidget):
         painter.setFont(QFont("Microsoft YaHei", 8))
         for index, day in enumerate(self.days):
             center = slot * (index + 0.5)
-            total = day["fg_ms"] + day["bg_ms"]
+            total = day["active_ms"]
             height = max((base - 10) * total / peak, 2)
             fg_height = height * (day["fg_ms"] / total if total else 0)
             painter.fillRect(QRectF(center - bar_width / 2, base - height, bar_width, height), COLOR_BG)
@@ -335,6 +337,9 @@ class MainWindow(QMainWindow):
         running = bool(self.daemon_alive()) if self.daemon_alive else True
         if not running:
             text = "守护进程未运行 —— 请双击「启动.bat」开始统计。"
+        elif config.load().get("paused"):
+            # 暂停时永远不会有新数据，不能再说"数据正在积累"误导人（BUG-30）
+            text = "监测已暂停 —— 右键托盘图标选择「继续统计」后才会积累新数据。"
         else:
             text = ("守护进程运行中，数据正在积累（每 %d 秒落库一批），"
                     "本窗口每 %d 秒自动刷新，请稍候。" % (

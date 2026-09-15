@@ -25,4 +25,13 @@ if not defined PYEXE for %%P in (python.exe) do set "PYEXE=%%~$PATH:P"
 if defined PYEXE set "PYWEXE=%PYEXE:python.exe=pythonw.exe%"
 if not exist "%PYWEXE%" set "PYWEXE=%PYEXE%"
 
+rem —— venv 的 Scripts\pythonw.exe 是启动器壳：拉起真解释器后自己常驻不退出，
+rem 白占 ~5MB 内存，任务管理器里会出现两个 pythonw（BUG-29）。
+rem 用 sys.base_prefix 找到真解释器目录（venv 时是 versions\<ver>\），优先用它。
+if defined PYWEXE if exist "%PYWEXE%" (
+    for /f "delims=" %%B in ('"%PYEXE%" -c "import sys;print(sys.base_prefix)" 2^>nul') do (
+        if exist "%%B\pythonw.exe" set "PYWEXE=%%B\pythonw.exe"
+    )
+)
+
 exit /b 0

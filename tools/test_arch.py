@@ -20,7 +20,8 @@ MAX_FILES = 12
 # 规模上限用「纯代码行」衡量：文档串 / 注释 / 空行不计入。
 # 理由：这个上限的意图是限制**实现规模**，而不是惩罚写注释。
 # 早先用总行数衡量时，2872 行里有 895 行是文档与空行，把注释算成"超标"是量错了对象。
-MAX_CODE_LINES = 2200
+# v0.1 二轮复检修复时经作者同意 2200→2400（悬浮窗/留存/自启等 v0.2 需求 + 复检 BUG-26~30）
+MAX_CODE_LINES = 2400
 # 阈值必须只在 config.py 定义一次，其它模块只许用 config.XXX 访问
 ONLY_QUALIFIED = True
 UI_FORBIDDEN = ("sqlite3", "SELECT ", "INSERT ", "UPDATE ", "DELETE FROM", ".execute(")

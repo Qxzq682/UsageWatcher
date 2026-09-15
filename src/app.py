@@ -273,6 +273,8 @@ class Daemon:
             self._emit(self.fg_tracker.force_close(sample.ts_ms, 0))
             return
         info = self.resolver.resolve(sample.pid)
+        if self._is_junk(info):
+            return       # 无信息量样本：不落库不采集，也不闭合当前真实前台段（BUG-28）
         if not self._register(info):
             # 不可监测 / 用户没勾选 → 不采集，并闭合可能还开着的片段
             self._emit(self.fg_tracker.force_close(sample.ts_ms, 0))
@@ -282,11 +284,19 @@ class Daemon:
 
     def _handle_bg(self, sample) -> None:
         info = self.resolver.resolve(sample.pid)
+        if self._is_junk(info):
+            return
         if not self._register(info):
             self._emit(self.bg_tracker.close_pid(sample.pid, sample.ts_ms))
             return
         self._emit(self.bg_tracker.on_sample(
             info.app_key, sample.pid, sample.ts_ms, sample.active))
+
+    @staticmethod
+    def _is_junk(info) -> bool:
+        """读不到路径且连进程名都没有（name:pid-N）的样本：落库只会产生
+        「(null)[锁]」这种用户看不懂的行，且没有任何可用信息（BUG-28）。"""
+        return not info.exe_path and info.app_key.startswith("name:pid-")
 
     def _register(self, info) -> bool:
         """写入元信息并决定是否采集。最终决定权在 app_capability 表
