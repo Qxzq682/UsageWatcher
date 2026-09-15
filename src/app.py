@@ -1,7 +1,6 @@
-"""程序入口。三种模式（命令行参数分流）：无参数 = 采集守护进程（不加载
-PySide6，常驻约 35MB）；--gui = 统计窗口（独立进程，关窗即退出）；
---smoke = 自检（跑几秒自动退出）。主线程跑 Win32 消息循环（回调/托盘/
-电源通知），工作线程采集与写库，UI/托盘永不被磁盘 I/O 卡住。
+"""程序入口。三种模式（命令行参数分流）：无参数 = 采集守护进程（不加载 PySide6，
+常驻约 35MB）；--gui = 统计窗口（独立进程，关窗即退出）；--smoke = 自检（自动退出）。
+主线程跑 Win32 消息循环（回调/托盘/电源通知），工作线程采集与写库，UI 永不被 I/O 卡住。
 """
 
 from __future__ import annotations
@@ -334,8 +333,10 @@ class Daemon:
             if not self._pending or not (force or due or len(self._pending) >= 50):
                 return
             batch, self._pending = self._pending, []   # 原子交换：杜绝交错丢段
-        segments = track.finalize(batch)
+        segments, clamped = track.clamp_fg_overlaps(track.finalize(batch))
         self._last_flush = time.monotonic()
+        if clamped:
+            self.store.error_count += clamped    # 兜底触发=未知重叠路径，必须可见（R8）
         if segments:
             self.store.write_segments(segments)
         self._maybe_trim_memory()

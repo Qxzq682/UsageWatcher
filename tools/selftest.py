@@ -119,12 +119,13 @@ def test_finalize() -> None:
     print("\n[5] 收尾：合并相邻同类 + 丢弃过短")
     segs = [
         track.Segment("a.exe", 1, "fg", ms("09:00"), ms("09:01")),
-        track.Segment("a.exe", 1, "fg", ms("09:01") + 3000, ms("09:02")),   # 间隙 3s < 10s → 应合并
-        track.Segment("a.exe", 1, "fg", ms("09:20"), ms("09:21")),          # 间隙大 → 不合并
-        track.Segment("a.exe", 1, "fg", ms("11:00"), ms("11:00") + 500),    # 太短 → 丢弃
+        track.Segment("a.exe", 1, "fg", ms("09:01") + 3000, ms("09:02")),
+        # 3s 缝隙不合并：中间被别的应用真实占用过（BUG-31），焊平=跨应用重叠
+        track.Segment("a.exe", 1, "fg", ms("09:02"), ms("09:03")),   # 首尾相接 → 合并
+        track.Segment("a.exe", 1, "fg", ms("11:00"), ms("11:00") + 500),   # 太短 → 丢弃
     ]
     out = track.finalize(segs)
-    check("相邻同类片段被合并（3 段 → 2 段）", len(out) == 2, str([s.dur_ms for s in out]))
+    check("缝隙段独立、相接段合并（4 段 → 2 段）", len(out) == 2, str([s.dur_ms for s in out]))
     check("过短片段被丢弃", all(s.dur_ms >= config.MIN_SEG_MS for s in out))
     mixed = track.finalize([
         track.Segment("a.exe", 1, "fg", ms("09:00"), ms("09:02")),
@@ -515,6 +516,48 @@ def test_maintenance_cleans_junk() -> None:
         store.close()
 
 
+def test_finalize_fg_no_gap_fill() -> None:
+    print("\n[23] 前台合并不填平跨应用缝隙 + 落库兜底截短（BUG-31 回归）")
+    base = 1_000_000
+    seam = [
+        track.Segment("edge", 1, "fg", base, base + 49_000),
+        track.Segment("wb", 2, "fg", base + 49_000, base + 54_000),
+        track.Segment("edge", 1, "fg", base + 54_000, base + 93_000),
+    ]
+    segs = track.finalize(seam)
+    overlap = any(a.app_key != b.app_key and a.start_ms < b.end_ms and b.start_ms < a.end_ms
+                  for a in segs for b in segs if a is not b)
+    check("短段插入不再被焊进前一条（无跨应用重叠）", not overlap, str(segs))
+    edge = [s for s in segs if s.app_key == "edge"]
+    check("被插入的应用两半保持独立（49s 处不填平）",
+          len(edge) == 2 and edge[0].end_ms == base + 49_000, str(edge))
+    _, clamped = track.clamp_fg_overlaps(track.finalize(seam))
+    check("治本后兜底不误触发（clamp=0）", clamped == 0, str(clamped))
+    joint = track.finalize([
+        track.Segment("edge", 1, "fg", base, base + 10_000),
+        track.Segment("edge", 1, "fg", base + 10_000, base + 20_000),
+    ])
+    check("同应用首尾相接仍正常合并",
+          len(joint) == 1 and joint[0].end_ms - joint[0].start_ms == 20_000, str(joint))
+    bg = track.finalize([
+        track.Segment("wx", 1, "bg", base, base + 10_000),
+        track.Segment("wx", 1, "bg", base + 15_000, base + 20_000),
+    ])
+    check("后台合并维持 MERGE_GAP_MS 容忍",
+          len(bg) == 1 and bg[0].end_ms - bg[0].start_ms == 20_000, str(bg))
+    bad = [
+        track.Segment("a", 1, "fg", base, base + 60_000),
+        track.Segment("b", 2, "fg", base + 30_000, base + 40_000),
+    ]
+    out, clamped = track.clamp_fg_overlaps(bad)
+    check("兜底把重叠截短到真实切换点",
+          clamped == 1 and out[0].end_ms == base + 30_000
+          and out[0].start_ms == base, str(out))
+    check("截短后无重叠", all(not (x.start_ms < y.end_ms and y.start_ms < x.end_ms)
+                              for x in out for y in out if x is not y and x.kind == "fg"
+                              and y.kind == "fg"), "ok")
+
+
 def main() -> int:
     print("=" * 68)
     print(" 自测：纯逻辑回归 + 安全红线")
@@ -541,6 +584,7 @@ def main() -> int:
     test_reset_recheckable()
     test_fg_monotonic_no_overlap()
     test_maintenance_cleans_junk()
+    test_finalize_fg_no_gap_fill()
 
     print("\n" + "=" * 68)
     print("通过 %d 项，失败 %d 项" % (PASSED, len(FAILED)))

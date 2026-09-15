@@ -202,8 +202,10 @@ def finalize(segments: Iterable, merge_gap_ms: Optional[int] = None,
              min_ms: Optional[int] = None) -> List[Segment]:
     """合并相邻同类片段，丢弃过短残渣。
 
-    1 秒级的前台轮询会产出大量零碎片段，必须在这里吸收掉，
-    否则数据库里全是几百毫秒的渣，统计和 UI 都没法看。
+    后台采样会产出大量零碎片段，必须在这里吸收掉，否则数据库里
+    全是几百毫秒的渣，统计和 UI 都没法看。合并容忍按 kind 分流：
+    前台零间隙（FG_MERGE_GAP_MS，缝隙=别的应用占用过，BUG-31），
+    后台 MERGE_GAP_MS；merge_gap_ms 参数只覆盖后台那条线（测试用）。
     """
     gap = config.MERGE_GAP_MS if merge_gap_ms is None else merge_gap_ms
     floor_ms = config.MIN_SEG_MS if min_ms is None else min_ms
@@ -214,9 +216,29 @@ def finalize(segments: Iterable, merge_gap_ms: Optional[int] = None,
         if merged:
             last = merged[-1]
             same_group = (last.app_key, last.pid, last.kind) == (seg.app_key, seg.pid, seg.kind)
-            if same_group and seg.start_ms - last.end_ms <= gap:
+            # 前台边界是事件驱动的精确切点（首尾相接），零容忍：缝隙意味着中间
+            # 被别的应用真实占用过，焊平会产出跨应用嵌入重叠（BUG-31）。
+            # 后台是采样驱动（有间隙正常），且重叠由统计并集消化，保留容忍。
+            seg_gap = config.FG_MERGE_GAP_MS if seg.kind == "fg" else gap
+            if same_group and seg.start_ms - last.end_ms <= seg_gap:
                 last.end_ms = max(last.end_ms, seg.end_ms)
                 last.flags |= seg.flags
                 continue
         merged.append(Segment(seg.app_key, seg.pid, seg.kind, seg.start_ms, seg.end_ms, seg.flags))
     return [s for s in merged if s.dur_ms >= floor_ms]
+
+
+def clamp_fg_overlaps(segments: List[Segment]) -> tuple:
+    """落库前的最后保险：前台段按互斥语义不允许任何重叠。
+
+    正常情况下 on_fg 夹单调（BUG-26）+ finalize 前台零间隙合并（BUG-31）
+    已杜绝重叠；若这里仍发现，说明存在未知路径 —— 截短先出现的段保住
+    真实切换点，并返回截短次数供 error_count 计数（R8：异常必须可见）。
+    """
+    ordered = sorted((s for s in segments if s.kind == "fg"), key=lambda s: s.start_ms)
+    clamped = 0
+    for prev, cur in zip(ordered, ordered[1:]):
+        if cur.start_ms < prev.end_ms:
+            prev.end_ms = cur.start_ms
+            clamped += 1
+    return segments, clamped

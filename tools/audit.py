@@ -2,7 +2,7 @@ r"""隐私与安全自证工具。
 
 它能回答一个别人最该问、也最难自证的问题：「你说不联网、不采集内容，凭什么信？」
 
-八项检查，跑完输出一份报告（可直接贴到 GitHub Issue / README）：
+九项检查，跑完输出一份报告（可直接贴到 GitHub Issue / README）：
     1. 静态扫描：源码里有没有网络调用或采集内容型数据
     2. 运行期：本进程有没有在监听端口 / 建立连接（互补于第 1 项：
        静态扫描防"代码里藏了网络调用"，netstat 防"动态加载绕过了扫描"）
@@ -12,6 +12,7 @@ r"""隐私与安全自证工具。
     6. 权限：完整性级别是不是普通用户（没有提权）
     7. 依赖清单：实际装的版本 vs requirements.txt 是否一致
     8. 数据完整性：dur 算式 / 时间顺序 / 外键悬空（库内数据自洽）
+    9. 前台段互斥：跨应用前台段重叠计数（信息项，历史不回改）
 
 用法：python.exe tools\audit.py [--pid <守护进程PID>]
 """
@@ -253,6 +254,34 @@ def check_data_integrity() -> bool:
     return ok
 
 
+def check_fg_overlap() -> bool:
+    """[9] 前台段互斥计数（信息项）：前台按语义是全屏互斥的，不该有重叠。
+
+    BUG-26/31 修复前的历史重叠按留痕原则不回改，本项只做可见计数、
+    不判失败；真正的防线在 flush 出口兜底（截短 + error_count 可见）。
+    """
+    say("[9] 前台段互斥：跨应用前台段不得重叠（信息项，历史不回改）")
+    try:
+        from data import Store
+        store = Store()
+        total = store.conn.execute(
+            """SELECT COUNT(*) c FROM segment a JOIN segment b
+               ON a.seg_id < b.seg_id AND a.kind='fg' AND b.kind='fg'
+               AND a.end_ms > b.start_ms AND b.end_ms > a.start_ms""").fetchone()["c"]
+        nested = store.conn.execute(
+            """SELECT COUNT(*) c FROM segment a JOIN segment b
+               ON a.seg_id < b.seg_id AND a.kind='fg' AND b.kind='fg'
+               AND a.end_ms > b.start_ms AND b.end_ms > a.start_ms
+               AND a.start_ms < b.start_ms AND b.end_ms < a.end_ms""").fetchone()["c"]
+        store.close()
+    except Exception as exc:
+        say("    [!] 读取失败：%s" % exc)
+        return False
+    say("    fg 重叠对 %d（嵌入型 %d —— BUG-31 夹缝合并的历史签名）" % (total, nested))
+    say("    结果：通过（计数展示；历史数据按留痕原则不回改）")
+    return True
+
+
 def main() -> int:
     parser = argparse.ArgumentParser()
     parser.add_argument("--pid", type=int, default=0, help="守护进程 PID（不填则自动查找）")
@@ -272,6 +301,7 @@ def main() -> int:
         ("未提权", check_integrity()),
         ("依赖清单一致", check_requirements()),
         ("数据完整性", check_data_integrity()),
+        ("前台段互斥", check_fg_overlap()),
     ]
     say()
     say("=" * 70)

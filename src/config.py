@@ -62,7 +62,9 @@ CPU_ACTIVE_PCT = 2.0              # 单核百分比阈值（psutil 口径，可 
 IO_ACTIVE_BPS = 32768             # 磁盘读写字节/秒 阈值（32KB/s）
 ACTIVE_N = 2                      # 连续 N 轮活跃才开段
 IDLE_N = 3                        # 连续 N 轮不活跃才收尾
-MERGE_GAP_MS = 10000              # 相邻同类片段间隔 <= 此值就合并
+MERGE_GAP_MS = 10000              # 后台相邻同类片段间隔 <= 此值就合并
+FG_MERGE_GAP_MS = 0               # 前台合并零容忍：缝隙=别的应用真实占用过，
+                                  # 焊平会产出跨应用嵌入重叠（BUG-31）
 MIN_SEG_MS = 3000                 # 合并后仍短于此值的片段丢弃
 MAX_CANDIDATES = 120              # 候选进程上限
 CANDIDATE_REBUILD_S = 10.0        # 候选集合重建周期
