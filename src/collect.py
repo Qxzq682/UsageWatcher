@@ -94,6 +94,7 @@ class FgWatcher:
         self._hook = None
         self._proc = None      # 必须保活！GC 掉回调会让进程崩溃（实测坑）
         self._last_pid = -1
+        self.idle_cut = False  # 空闲闩：True=已因无输入截断前台（见 idle_gate）
         # 用 Queue 而不是 list：回调在消息循环线程写，采集线程读
         self.pending: "queue.Queue" = queue.Queue()
 
@@ -122,6 +123,17 @@ class FgWatcher:
             except queue.Empty:
                 return out
 
+    def samples(self) -> List[Sample]:
+        """取事件样本供消费；空闲闩合上时事件照收但不判前台。
+
+        人已离开，期间 toast/弹窗抢到的前台不算"使用"（BUG-32），
+        丢弃即可——恢复输入后轮询会重新上报真实前台。
+        """
+        if self.idle_cut:
+            self.drain()
+            return []
+        return self.drain()
+
     def install(self) -> bool:
         self._proc = _WinEventProc(self._callback)
         self._hook = _user32.SetWinEventHook(
@@ -148,13 +160,36 @@ class FgWatcher:
         """
         self._last_pid = -1
 
+    def idle_gate(self, now_ms: int, close: Callable[[int, int], list]) -> list:
+        """空闲截断闸门：无输入超过 FG_IDLE_CUTOFF_S 就闭合在开前台段。
+
+        锁屏/休眠有 force_close 收尾，但"不锁屏直接走人"没有——离开前的
+        窗口会一直占着前台，整段 AFK 时间被记成该应用的使用时长
+        （BUG-32：QQ 被记 95 分钟）。进入空闲时闭合并 forget()，恢复输入
+        后轮询会重新上报当时的前台（新段，不与 AFK 前的旧段相连）。
+        close 由调用方注入（track.FgTracker.force_close），collect 不反向
+        依赖 track。返回需要落库的闭合片段（可能为空）。
+        """
+        idle = winutil.idle_milliseconds() >= config.FG_IDLE_CUTOFF_S * 1000
+        if idle == self.idle_cut:
+            return []
+        self.idle_cut = idle
+        if idle:
+            self.forget()
+            return close(now_ms, config.FLAG_IDLE)
+        return []
+
     # ---- 轮询兜底（UIPI 下某些高完整性进程可能收不到事件） ----
 
     def poll(self) -> Optional[Sample]:
         """返回一个新的 Sample（前台 PID 有变化时），无变化返回 None。
 
         最小化的窗口仍可能被 GetForegroundWindow 返回，必须判掉（实测坑）。
+        空闲闩合上期间恒返回 None：人已离开，不能把离开前的窗口重新
+        报成"当前前台"，否则闭合→重开的循环会每 0.2s 造一个碎片段。
         """
+        if self.idle_cut:
+            return None
         hwnd = winutil.foreground_hwnd()
         pid = 0
         if hwnd and not winutil.is_minimized(hwnd):

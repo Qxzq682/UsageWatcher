@@ -65,6 +65,8 @@ IDLE_N = 3                        # 连续 N 轮不活跃才收尾
 MERGE_GAP_MS = 10000              # 后台相邻同类片段间隔 <= 此值就合并
 FG_MERGE_GAP_MS = 0               # 前台合并零容忍：缝隙=别的应用真实占用过，
                                   # 焊平会产出跨应用嵌入重叠（BUG-31）
+FG_IDLE_CUTOFF_S = 300            # 无输入空闲超过这么久就截断前台段：人不在这，
+                                  # 前台窗口挂着不等于"正在使用"（BUG-32）
 MIN_SEG_MS = 3000                 # 合并后仍短于此值的片段丢弃
 MAX_CANDIDATES = 120              # 候选进程上限
 CANDIDATE_REBUILD_S = 10.0        # 候选集合重建周期
@@ -79,6 +81,7 @@ FLAG_RESUME = 1   # 跨唤醒被截断
 FLAG_LOCK = 2     # 锁屏/暂停被截断
 FLAG_EXIT = 4     # 进程退出收尾
 FLAG_GUESS = 8    # 边界靠轮询推测（非事件驱动）
+FLAG_IDLE = 16    # 无输入空闲（AFK）被截断
 
 EVENT_KEEP_DAYS = 30   # event 表保留天数
 VACUUM_MIN_INTERVAL_S = 7 * 86400   # 两次 VACUUM 的最小间隔

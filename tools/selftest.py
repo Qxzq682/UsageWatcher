@@ -22,6 +22,7 @@ import collect   # noqa: E402
 import config    # noqa: E402
 import data      # noqa: E402
 import track     # noqa: E402
+import winutil   # noqa: E402
 
 PASSED = 0
 FAILED: list = []
@@ -558,6 +559,50 @@ def test_finalize_fg_no_gap_fill() -> None:
                               and y.kind == "fg"), "ok")
 
 
+def test_idle_gate() -> None:
+    print("\n[24] 空闲截断闸门：AFK 不再记成前台使用（BUG-32 回归）")
+    w = collect.FgWatcher(lambda _s: None)
+    trk = track.FgTracker()
+    saved = (winutil.idle_milliseconds, winutil.foreground_hwnd,
+             winutil.is_minimized, winutil.pid_of_window)
+    try:
+        winutil.idle_milliseconds = lambda: 60_000            # 1 分钟：未超限
+        trk.on_fg("qq.exe", 111, ms("10:00"))
+        out = w.idle_gate(ms("10:01"), trk.force_close)
+        check("未超限时空闲闸门不动作",
+              out == [] and w.idle_cut is False and trk.current() == "qq.exe", str(out))
+
+        winutil.idle_milliseconds = lambda: 400_000           # 6.7 分钟无输入
+        out = w.idle_gate(ms("10:05"), trk.force_close)
+        check("超限空闲闭合在开前台段并标 FLAG_IDLE",
+              len(out) == 1 and out[0].flags == config.FLAG_IDLE
+              and out[0].end_ms == ms("10:05"), str(out))
+        check("闸门进入闩上状态且已 forget（恢复后要重报前台）",
+              w.idle_cut is True and w._last_pid == -1, str(w.idle_cut))
+        check("闩上时轮询不再上报（否则闭合→重开每 0.2s 造碎片）", w.poll() is None)
+        w.pending.put(collect.Sample(ts_ms=ms("10:06"), pid=222, from_event=True))
+        check("闩上时事件只收不判（toast 不算使用）",
+              w.samples() == [] and w.pending.empty())
+        out2 = w.idle_gate(ms("10:07"), trk.force_close)
+        check("闩上期间重复过闸不产段", out2 == [] and trk.current() is None, str(out2))
+
+        winutil.idle_milliseconds = lambda: 1_000             # 输入恢复
+        out3 = w.idle_gate(ms("10:08"), trk.force_close)
+        check("输入恢复解闩且不产段", out3 == [] and w.idle_cut is False, str(out3))
+        winutil.foreground_hwnd = lambda: 4242
+        winutil.is_minimized = lambda _h: False
+        winutil.pid_of_window = lambda _h: 333
+        polled = w.poll()
+        check("解闩后轮询重报当前前台",
+              polled is not None and polled.pid == 333 and not polled.from_event,
+              str(polled))
+        segs = trk.on_fg("wx.exe", 333, polled.ts_ms, guessed=not polled.from_event)
+        check("恢复后的前台按新片段起算", segs == [] and trk.current() == "wx.exe")
+    finally:
+        (winutil.idle_milliseconds, winutil.foreground_hwnd,
+         winutil.is_minimized, winutil.pid_of_window) = saved
+
+
 def main() -> int:
     print("=" * 68)
     print(" 自测：纯逻辑回归 + 安全红线")
@@ -585,6 +630,7 @@ def main() -> int:
     test_fg_monotonic_no_overlap()
     test_maintenance_cleans_junk()
     test_finalize_fg_no_gap_fill()
+    test_idle_gate()
 
     print("\n" + "=" * 68)
     print("通过 %d 项，失败 %d 项" % (PASSED, len(FAILED)))

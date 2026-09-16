@@ -246,7 +246,8 @@ class Daemon:
 
     def _tick(self) -> None:
         now_ms = _now_ms()
-        for sample in self.fg.drain():
+        self._emit(self.fg.idle_gate(now_ms, self.fg_tracker.force_close))
+        for sample in self.fg.samples():
             self._handle_fg(sample)
         if (polled := self.fg.poll()) is not None:
             self._handle_fg(polled)
@@ -335,8 +336,7 @@ class Daemon:
             batch, self._pending = self._pending, []   # 原子交换：杜绝交错丢段
         segments, clamped = track.clamp_fg_overlaps(track.finalize(batch))
         self._last_flush = time.monotonic()
-        if clamped:
-            self.store.error_count += clamped    # 兜底触发=未知重叠路径，必须可见（R8）
+        if clamped: self.store.error_count += clamped    # 兜底触发=未知重叠路径，必须可见（R8）
         if segments:
             self.store.write_segments(segments)
         self._maybe_trim_memory()
