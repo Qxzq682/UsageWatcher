@@ -19,8 +19,6 @@ venv/
 *.egg-info/
 
 # 构建产物
-build/
-dist/
 *.spec.bak
 
 # 编辑器与系统
@@ -35,11 +33,9 @@ Thumbs.db
 ~$*
 
 # v0.2 打包（B1）
-build2/
-dist2/
 _pkg_smoke_env*/
 _diag.txt
 _err.txt
 _out.txt
-build3/
-dist3/
+build*/
+dist*/
