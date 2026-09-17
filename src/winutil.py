@@ -73,29 +73,6 @@ _advapi32.GetSidSubAuthorityCount.argtypes = [ctypes.c_void_p]
 _advapi32.GetSidSubAuthority.restype = ctypes.POINTER(ctypes.c_ulong)
 _advapi32.GetSidSubAuthority.argtypes = [ctypes.c_void_p, w.DWORD]
 
-
-class _PROCESS_MEMORY_COUNTERS(ctypes.Structure):
-    _fields_ = [
-        ("cb", w.DWORD),
-        ("PageFaultCount", w.DWORD),
-        ("PeakWorkingSetSize", ctypes.c_size_t),
-        ("WorkingSetSize", ctypes.c_size_t),
-        ("QuotaPeakPagedPoolUsage", ctypes.c_size_t),
-        ("QuotaPagedPoolUsage", ctypes.c_size_t),
-        ("QuotaPeakNonPagedPoolUsage", ctypes.c_size_t),
-        ("QuotaNonPagedPoolUsage", ctypes.c_size_t),
-        ("PagefileUsage", ctypes.c_size_t),
-        ("PeakPagefileUsage", ctypes.c_size_t),
-    ]
-
-
-_psapi.GetProcessMemoryInfo.argtypes = [
-    w.HANDLE,
-    ctypes.POINTER(_PROCESS_MEMORY_COUNTERS),
-    w.DWORD,
-]
-_psapi.GetProcessMemoryInfo.restype = w.BOOL
-
 # ---------------------------------------------------------------- 前台窗口
 
 
@@ -286,16 +263,6 @@ def idle_milliseconds() -> int:
 
 
 # ---------------------------------------------------------------- 自身内存/优先级
-
-
-def working_set_mb() -> float:
-    counters = _PROCESS_MEMORY_COUNTERS()
-    counters.cb = ctypes.sizeof(_PROCESS_MEMORY_COUNTERS)
-    if not _psapi.GetProcessMemoryInfo(
-        _kernel32.GetCurrentProcess(), ctypes.byref(counters), counters.cb
-    ):
-        return 0.0
-    return counters.WorkingSetSize / 1048576.0
 
 
 def set_below_normal_priority() -> bool:

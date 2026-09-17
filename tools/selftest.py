@@ -706,14 +706,14 @@ def test_segment_retention() -> None:
 
 
 def test_i18n_tables() -> None:
-    print("\n[30] i18n：中英字典 key 一致 + 文案回落（v0.3）")
+    print("\n[30] i18n：单表结构完整 + 文案回落（v0.3）")
     import i18n
     from ui_main import PERIOD_KEYS
     from ui_scope import CATEGORY_KEYS
-    zh_keys, en_keys = set(i18n._ZH), set(i18n._EN)
-    check("zh 与 en 的 key 集合完全一致", zh_keys == en_keys,
-          "zh 独有 %s / en 独有 %s" % (sorted(zh_keys - en_keys)[:5],
-                                       sorted(en_keys - zh_keys)[:5]))
+    bad = [k for k, v in i18n._T.items()
+           if not (isinstance(v, tuple) and len(v) == 2 and v[0] and v[1])]
+    check("每条文案均为 (中文, English) 二元组且两元素非空", not bad,
+          "异常条目 %s" % bad[:5])
     check("t() 对未知 key 回落为 key 本身（R8：宁可丑不肯哑）",
           i18n.t("__no_such_key__") == "__no_such_key__")
     check("周期/分类文案全量存在（切语言后界面不缺字）",

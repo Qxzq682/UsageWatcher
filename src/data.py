@@ -25,29 +25,13 @@ class _LockedConnection:
         self._conn = conn
         self._lock = lock
 
-    def execute(self, sql: str, params=()):
-        with self._lock:
-            return self._conn.execute(sql, params)
-
-    def executemany(self, sql: str, rows):
-        with self._lock:
-            return self._conn.executemany(sql, rows)
-
-    def executescript(self, script: str):
-        with self._lock:
-            return self._conn.executescript(script)
-
-    def commit(self) -> None:
-        with self._lock:
-            self._conn.commit()
-
-    def rollback(self) -> None:
-        with self._lock:
-            self._conn.rollback()
-
-    def close(self) -> None:
-        with self._lock:
-            self._conn.close()
+    def __getattr__(self, name):
+        """execute / executemany / commit / close 等全部转发进锁内执行——
+        薄适配器：Store 侧调用方式不变，锁语义一致。"""
+        def wrapped(*args, **kwargs):
+            with self._lock:
+                return getattr(self._conn, name)(*args, **kwargs)
+        return wrapped
 
 
 class Store:
