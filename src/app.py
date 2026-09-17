@@ -27,6 +27,7 @@ import audio     # noqa: E402
 import collect   # noqa: E402
 import config    # noqa: E402
 import data      # noqa: E402
+import i18n      # noqa: E402
 import track     # noqa: E402
 import sysmsg    # noqa: E402
 import tray      # noqa: E402
@@ -98,7 +99,7 @@ class Daemon:
         self.icon = tray.TrayIcon(self.window, self._menu_items)
         self.icon.show()
         if self.paused:
-            self.icon.set_tooltip("已暂停统计")   # 恢复的暂停状态要立刻可见
+            self.icon.set_tooltip(i18n.t("tip_paused"))   # 恢复的暂停状态要立刻可见
         self.fg.install()
         self.power.register(self.window.hwnd)
         self.window.on(tray.WM_COMMAND, self._on_command)
@@ -130,14 +131,13 @@ class Daemon:
         if not self.icon:
             return
         if self.paused:
-            self.icon.set_tooltip("已暂停统计")
+            self.icon.set_tooltip(i18n.t("tip_paused"))
             return
         d = track.day_of(_now_ms()); s = self.store.totals_summary(d, d)
-        tip = "%s\n今日活跃 %s（前台 %s · 后台 %s）" % (
-            config.APP_TITLE, _fmt_duration(s["total_ms"]),
-            _fmt_duration(s["fg_ms"]), _fmt_duration(s["bg_ms"]))
+        tip = i18n.t("tip_today", i18n.t("app_title"), _fmt_duration(s["total_ms"]),
+                     _fmt_duration(s["fg_ms"]), _fmt_duration(s["bg_ms"]))
         if self.store.error_count:
-            tip += "\n[!] 采集异常 %d 次" % self.store.error_count
+            tip += i18n.t("tip_errors", self.store.error_count)
         self.icon.set_tooltip(tip)
 
     def stop_and_flush(self) -> None:
@@ -202,7 +202,7 @@ class Daemon:
             self.store.error_count += 1   # R8：落盘失败必须可见，不许静默吞掉
         self.store.log_event("pause" if value else "resume_collect")
         if self.icon:
-            self.icon.set_tooltip("已暂停统计" if value else config.APP_TITLE)
+            self.icon.set_tooltip(i18n.t("tip_paused") if value else i18n.t("app_title"))
 
     # ---------------------------------------------------- 电源 / 会话
 
@@ -407,13 +407,16 @@ def _start_daemon() -> None:
 def main(argv: list) -> int:
     if "--gui" in argv:
         return run_gui(smoke="--smoke" in argv)
+    if "--overlay" in argv:    # 桌面悬浮窗（v0.3）：独立轻进程，重复启动自退
+        import ui_overlay
+        return ui_overlay.run() if ui_overlay.acquire_overlay_mutex() else 0
     if "--smoke" in argv:
         return _smoke_run()
     if not acquire_single_instance():
-        print("程序已在运行，正在打开统计窗口…")
+        print(i18n.t("already_running"))
         run_gui()          # 不再起第二个采集器，直接把统计窗口拉起来
         return 0
-    print("%s v%s 正在后台采集。托盘图标可右键操作。" % (config.APP_TITLE, config.APP_VERSION))
+    print(i18n.t("daemon_running", i18n.t("app_title"), config.APP_VERSION))
     return Daemon().run()
 
 

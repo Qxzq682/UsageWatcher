@@ -14,6 +14,7 @@ import ctypes
 import ctypes.wintypes as w
 from typing import Callable, Dict, List, Optional
 
+import i18n
 import sysmsg
 import winutil
 
@@ -245,11 +246,11 @@ class Options:
     @staticmethod
     def build(paused: bool, today_fg: str, today_bg: str) -> list:
         return [
-            (0, f"今日前台 {today_fg} · 后台 {today_bg}", MF_GRAYED),
+            (0, i18n.t("tray_summary", today_fg, today_bg), MF_GRAYED),
             (0, "", None),
-            (Options.OPEN, "打开统计窗口", 0),
-            (Options.PAUSE, "继续统计" if paused else "暂停统计",
+            (Options.OPEN, i18n.t("tray_open"), 0),
+            (Options.PAUSE, i18n.t("tray_resume" if paused else "tray_pause"),
              MF_CHECKED if paused else 0),
             (0, "", None),
-            (Options.QUIT, "退出", 0),
+            (Options.QUIT, i18n.t("tray_quit"), 0),
         ]

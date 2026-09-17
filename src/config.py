@@ -15,7 +15,7 @@ from pathlib import Path
 
 APP_NAME = "UsageWatcher"
 APP_TITLE = "软件使用时长监测"
-APP_VERSION = "0.2.1"
+APP_VERSION = "0.3.0"
 
 # ---------------------------------------------------------------- 路径
 
@@ -50,6 +50,12 @@ def stop_flag_path() -> Path:
     不用强杀进程，也就不会丢掉"用户正在用的那一段"。
     """
     return data_dir() / "stop.flag"
+
+
+def overlay_flag_path() -> Path:
+    """悬浮窗退出标志（与 stop.flag 同一套零 IPC 思路）：
+    设置页取消勾选时只创建文件，悬浮窗进程自己发现后走正常退出。"""
+    return data_dir() / "overlay.flag"
 
 
 # ---------------------------------------------------------------- 采集阈值
@@ -100,7 +106,17 @@ EMPTY_WORKING_SET_INTERVAL_S = 300   # 每 5 分钟（仅写完库后）压缩�
 DEFAULTS: dict = {
     "paused": False,
     "rank_limit": 50,
+    "ui_language": "zh",        # 界面语言 zh/en（v0.3），重启统计窗口后生效
+    "overlay_enabled": False,   # 桌面悬浮窗（v0.3）：独立进程，额外约 45MB，默认关
 }
+
+# ---------------------------------------------------------------- 悬浮窗
+
+OVERLAY_REFRESH_S = 60      # 数据刷新周期（与守护 tooltip 同频）
+OVERLAY_WIDTH = 176         # 窗口尺寸（DPI 缩放下按 Qt 逻辑像素）
+OVERLAY_HEIGHT = 64
+OVERLAY_OPACITY = 0.88      # 整体不透明度 0~1
+OVERLAY_GRACE_QUITS = 5     # 连续 N 个刷新周期守护都不在 → 自动退出（默认约 5 分钟）
 
 
 def load() -> dict:

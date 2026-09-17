@@ -24,6 +24,7 @@ from PySide6.QtWidgets import (
 
 import config
 import data
+import i18n
 import track
 
 COLOR_FG = QColor("#378ADD")
@@ -35,8 +36,8 @@ COLOR_MUTED = QColor("#888780")
 def fmt_duration(ms: int) -> str:
     minutes = int(ms // 60000)
     if minutes < 60:
-        return "%d 分" % minutes
-    return "%d 小时 %02d 分" % (minutes // 60, minutes % 60)
+        return i18n.t("dur_min", minutes)
+    return i18n.t("dur_hm", minutes // 60, minutes % 60)
 
 
 # ---------------------------------------------------------------- CSV 导出
@@ -54,7 +55,8 @@ def _csv_safe(text: str) -> str:
 
 def csv_rows(rows: list) -> list:
     """把 app_totals 的行转成 CSV 单元格（含表头），纯函数便于回归。"""
-    out = [("应用", "可执行文件", "前台(分钟)", "后台活跃(分钟)", "活跃总时长(分钟)", "前台占比%")]
+    out = [(i18n.t("hdr_app"), i18n.t("hdr_exe"), i18n.t("hdr_fg_min"),
+            i18n.t("hdr_bg_min"), i18n.t("hdr_total_min"), i18n.t("hdr_fg_pct_c"))]
     for r in rows:
         out.append((
             _csv_safe(r["display_name"]),
@@ -69,27 +71,32 @@ def csv_rows(rows: list) -> list:
 
 # ---------------------------------------------------------------- 周期计算
 
-PERIODS = ("今日", "昨日", "按日", "本周", "本月", "近 30 天")
+# 业务键（英文，逻辑判断只用 key）+ 显示文案（i18n）。切换语言后逻辑不变。
+PERIOD_KEYS = ("today", "yesterday", "byday", "week", "month", "30d")
 
 
-def period_range(period: str, day=None) -> tuple:
-    """周期 → (起日, 止日) ISO 串。day 是"按日"模式的指定日期（date 对象），
+def period_label(key: str) -> str:
+    return i18n.t("period_" + key)
+
+
+def period_range(key: str, day=None) -> tuple:
+    """周期 key → (起日, 止日) ISO 串。day 是"按日"模式的指定日期（date 对象），
     缺省昨天；其它周期忽略 day（纯函数，便于回归）。"""
     today = date.today()
-    if period == "昨日":
+    if key == "yesterday":
         y = today - timedelta(days=1)
         return y.isoformat(), y.isoformat()
-    if period == "按日":
+    if key == "byday":
         d = day or (today - timedelta(days=1))
         if isinstance(d, str):
             d = date.fromisoformat(d)
         return d.isoformat(), d.isoformat()
-    if period == "今日":
+    if key == "today":
         return today.isoformat(), today.isoformat()
-    if period == "本周":
+    if key == "week":
         start = today - timedelta(days=today.weekday())
         return start.isoformat(), today.isoformat()
-    if period == "本月":
+    if key == "month":
         return today.replace(day=1).isoformat(), today.isoformat()
     return (today - timedelta(days=29)).isoformat(), today.isoformat()
 
@@ -97,7 +104,10 @@ def period_range(period: str, day=None) -> tuple:
 # ---------------------------------------------------------------- 排行表
 
 class RankModel(QAbstractTableModel):
-    HEADERS = ("应用", "前台", "后台活跃", "活跃总时长(去重)", "前台占比")
+    @staticmethod
+    def _headers() -> tuple:
+        return (i18n.t("hdr_app"), i18n.t("hdr_fg"), i18n.t("hdr_bg"),
+                i18n.t("hdr_total"), i18n.t("hdr_fg_pct"))
 
     def __init__(self) -> None:
         super().__init__()
@@ -113,14 +123,15 @@ class RankModel(QAbstractTableModel):
         return len(self.rows)
 
     def columnCount(self, _parent=QModelIndex()) -> int:
-        return len(self.HEADERS)
+        return len(self._headers())
 
     def headerData(self, section, orientation, _role=Qt.DisplayRole):
         if orientation != Qt.Horizontal:
             return None
         if _role == Qt.ToolTipRole:
-            return "活跃总时长=前台∪后台去重；多进程应用前后台会重叠，故小于相加"
-        return self.HEADERS[section] if _role == Qt.DisplayRole else None
+            return i18n.t("tip_hdr_total")
+        headers = self._headers()
+        return headers[section] if _role == Qt.DisplayRole else None
 
     def data(self, index, role=Qt.DisplayRole):
         if not index.isValid():
@@ -174,7 +185,7 @@ class StackedBar(QWidget):
         painter.fillRect(self.rect(), QColor("#FFFFFF"))
         if not self.rows:
             painter.setPen(QPen(COLOR_MUTED))
-            painter.drawText(self.rect(), Qt.AlignCenter, "暂无数据")
+            painter.drawText(self.rect(), Qt.AlignCenter, i18n.t("nodata"))
             return
         label_width = 130
         right = self.width() - 70
@@ -218,7 +229,7 @@ class DailyBars(QWidget):
         painter.fillRect(self.rect(), QColor("#FFFFFF"))
         if not self.days:
             painter.setPen(QPen(COLOR_MUTED))
-            painter.drawText(self.rect(), Qt.AlignCenter, "暂无数据")
+            painter.drawText(self.rect(), Qt.AlignCenter, i18n.t("nodata"))
             return
         # 柱高与峰值必须用 active_ms（fg∪bg 并集口径，与统计页一致）；
         # 用 fg+bg 相加会让柱子虚高、多日被虚高峰值整体压扁（BUG-27）
@@ -258,20 +269,20 @@ class MainWindow(QMainWindow):
         self.resize(920, 620)
 
         self.period = QComboBox()
-        self.period.addItems(PERIODS)
+        self.period.addItems([period_label(k) for k in PERIOD_KEYS])
         self.day_pick = QDateEdit()            # "按日"模式的日期选择（带日历弹窗）
         self.day_pick.setCalendarPopup(True)
         self.day_pick.setDisplayFormat("yyyy-MM-dd")
         self.day_pick.setDate(QDate.currentDate().addDays(-1))
         self.day_pick.dateChanged.connect(lambda _d: self.reload())
         self.day_pick.hide()
-        refresh = QPushButton("刷新")
+        refresh = QPushButton(i18n.t("btn_refresh"))
         refresh.clicked.connect(self.reload)
-        export = QPushButton("导出 CSV")
+        export = QPushButton(i18n.t("btn_export"))
         export.clicked.connect(self._export_csv)
 
         top = QHBoxLayout()
-        top.addWidget(QLabel("统计周期"))
+        top.addWidget(QLabel(i18n.t("lbl_period")))
         top.addWidget(self.period)
         top.addWidget(self.day_pick)
         top.addWidget(refresh)
@@ -306,19 +317,18 @@ class MainWindow(QMainWindow):
     def _build_tabs_and_layout(self, top: QHBoxLayout) -> None:
         stats_tab = QWidget()
         stats_layout = QVBoxLayout(stats_tab)
-        stats_layout.addWidget(QLabel("各应用前/后台时长（蓝=前台，灰=后台活跃）。"
-                                      "活跃总时长=前后台并集去重，多进程应用前后台重叠，不等于相加"))
+        stats_layout.addWidget(QLabel(i18n.t("chart_note")))
         stats_layout.addWidget(self.bars)
         stats_layout.addWidget(self.table, 1)
-        self.daily_title = QLabel("每日总时长")
+        self.daily_title = QLabel(i18n.t("daily_title"))
         stats_layout.addWidget(self.daily_title)
         stats_layout.addWidget(self.daily)
 
         import ui_scope
         self.tabs = QTabWidget()
-        self.tabs.addTab(stats_tab, "统计")
-        self.tabs.addTab(ui_scope.ScopePage(self.store), "监测范围")
-        self.tabs.addTab(ui_scope.PrivacyPage(self.store), "设置")
+        self.tabs.addTab(stats_tab, i18n.t("tab_stats"))
+        self.tabs.addTab(ui_scope.ScopePage(self.store), i18n.t("tab_scope"))
+        self.tabs.addTab(ui_scope.PrivacyPage(self.store), i18n.t("tab_settings"))
 
         central = QWidget()
         layout = QVBoxLayout(central)
@@ -338,25 +348,27 @@ class MainWindow(QMainWindow):
         return self.day_pick.date().toPython()   # PySide6 是 toPython（toPyDate 是 PyQt 的）
 
     def reload(self) -> None:
-        period = self.period.currentText()
-        self.day_pick.setVisible(period == "按日")
-        day_from, day_to = period_range(period, day=self._picked_day())
+        key = PERIOD_KEYS[self.period.currentIndex()]
+        self.day_pick.setVisible(key == "byday")
+        day_from, day_to = period_range(key, day=self._picked_day())
         rows = self.store.app_totals(day_from, day_to, limit=config.load()["rank_limit"])
         summary = self.store.totals_summary(day_from, day_to)
-        self.summary.setText("活跃总时长 %s　其中前台 %s（%.0f%%）" % (
-            fmt_duration(summary["total_ms"]), fmt_duration(summary["fg_ms"]),
-            summary["fg_ratio"] * 100))
+        self.summary.setText(i18n.t("summary_line",
+                                    fmt_duration(summary["total_ms"]),
+                                    fmt_duration(summary["fg_ms"]),
+                                    summary["fg_ratio"] * 100))
         self.model.set_rows(rows)
         self.bars.set_rows(rows)
         # 柱状图跟随周期（BUG-7）：单日/本周只有 1~几天，单独画没有信息量，
         # 固定画目标日往前 7 天的窗口趋势；本月/近 30 天周期够长，直接跟随周期整体。
-        if period in ("今日", "昨日", "按日"):
+        if key in ("today", "yesterday", "byday"):
             anchor = date.fromisoformat(day_to)
             chart_from = (anchor - timedelta(days=6)).isoformat()
-            self.daily_title.setText("%s 前后 7 天每日总时长" % day_to)
+            self.daily_title.setText(i18n.t("daily_around", day_to))
         else:
             chart_from = day_from
-            self.daily_title.setText(period + "每日总时长")
+            self.daily_title.setText(i18n.t("daily_follow",
+                                            self.period.currentText()))
         self.daily.set_days(self.store.daily_series(chart_from, day_to))
         self._update_hint(rows)
 
@@ -367,15 +379,13 @@ class MainWindow(QMainWindow):
             return
         running = bool(self.daemon_alive()) if self.daemon_alive else True
         if not running:
-            text = ("守护进程未运行（打开窗口时已尝试自动拉起）—— 若长时间没有变化，"
-                    "请双击「启动.bat」。")
+            text = i18n.t("hint_not_running")
         elif config.load().get("paused"):
             # 暂停时永远不会有新数据，不能再说"数据正在积累"误导人（BUG-30）
-            text = "监测已暂停 —— 右键托盘图标选择「继续统计」后才会积累新数据。"
+            text = i18n.t("hint_paused")
         else:
-            text = ("守护进程运行中，数据正在积累（每 %d 秒落库一批），"
-                    "本窗口每 %d 秒自动刷新，请稍候。" % (
-                        int(config.FLUSH_INTERVAL_S), config.UI_REFRESH_INTERVAL_S))
+            text = i18n.t("hint_accumulating",
+                          int(config.FLUSH_INTERVAL_S), config.UI_REFRESH_INTERVAL_S)
         self.hint.setText(text)
         self.hint.show()
 
@@ -384,11 +394,12 @@ class MainWindow(QMainWindow):
 
         utf-8-sig（带 BOM）是为了 Excel 双击不乱码；全量导出，不受排行条数限制。
         """
-        day_from, day_to = period_range(self.period.currentText(), day=self._picked_day())
+        day_from, day_to = period_range(PERIOD_KEYS[self.period.currentIndex()],
+                                        day=self._picked_day())
         rows = self.store.app_totals(day_from, day_to, limit=0)
         if not rows:
-            QMessageBox.information(self, "没有可导出的数据",
-                                    "当前周期（%s ~ %s）还没有记录。" % (day_from, day_to))
+            QMessageBox.information(self, i18n.t("export_none_title"),
+                                    i18n.t("export_none", day_from, day_to))
             return
         period = self.period.currentText().replace(" ", "")
         default_name = "UsageWatcher_%s_%s_%s.csv" % (period, day_from, day_to)
@@ -396,15 +407,15 @@ class MainWindow(QMainWindow):
         default_path = os.path.join(desktop if os.path.isdir(desktop) else os.path.expanduser("~"),
                                     default_name)
         path, _ = QFileDialog.getSaveFileName(
-            self, "导出 CSV", default_path, "CSV 表格 (*.csv)")
+            self, i18n.t("export_dialog_title"), default_path, i18n.t("export_filter"))
         if not path:
             return
         with open(path, "w", encoding="utf-8-sig", newline="") as fh:
             writer = csv.writer(fh)
-            writer.writerow(("统计周期", "%s ~ %s" % (day_from, day_to)))
+            writer.writerow((i18n.t("csv_period_row"), "%s ~ %s" % (day_from, day_to)))
             writer.writerows(csv_rows(rows))
-        QMessageBox.information(self, "导出完成",
-                                "已导出 %d 个应用：\n%s" % (len(rows), path))
+        QMessageBox.information(self, i18n.t("export_done_title"),
+                                i18n.t("export_done", len(rows), path))
 
 
 def run(smoke: bool = False, daemon_alive=None) -> int:
@@ -412,6 +423,7 @@ def run(smoke: bool = False, daemon_alive=None) -> int:
 
     app = QApplication.instance() or QApplication(sys.argv)
     store = data.Store()
+    _restore_overlay()
     window = MainWindow(store, daemon_alive=daemon_alive)
     window.show()
     if smoke:
@@ -420,3 +432,17 @@ def run(smoke: bool = False, daemon_alive=None) -> int:
     code = app.exec()
     store.close()
     return code
+
+
+def _restore_overlay() -> None:
+    """偏好开了悬浮窗且它没在跑 → 顺手拉起（重启后由打开统计窗口恢复，v0.3）。
+    只用 OpenMutexW 探测（winutil.mutex_alive），绝不在 GUI 进程里创建
+    overlay 的互斥体 —— 否则真悬浮窗启动时会误判"已有实例"而自杀。"""
+    import winutil
+    import ui_overlay
+    if not config.load().get("overlay_enabled"):
+        return
+    alive = winutil.mutex_alive("Local\\UsageWatcher_Overlay_"
+                                + (winutil.current_user_sid() or "x"))
+    if not alive:
+        ui_overlay.launch_overlay()

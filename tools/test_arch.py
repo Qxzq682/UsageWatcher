@@ -16,24 +16,28 @@ SRC = Path(__file__).resolve().parent.parent / "src"
 
 MAX_FILE_LINES = 450    # v0.2 开工时经作者同意 400→450（图标/口径解释/日期切换塞压 ui_main）
 MAX_FUNC_LINES = 60      # 防屎山核心配额，不为新功能放水
-MAX_FILES = 13           # 12 个现有文件 + 1 个 v0.2 悬浮窗预留位
+MAX_FILES = 15           # v0.3 经作者同意 13→15（+i18n.py 双语文案 + ui_overlay.py 悬浮窗）
 # 规模上限用「纯代码行」衡量：文档串 / 注释 / 空行不计入。
 # 理由：这个上限的意图是限制**实现规模**，而不是惩罚写注释。
 # 早先用总行数衡量时，2872 行里有 895 行是文档与空行，把注释算成"超标"是量错了对象。
 # v0.1 二轮复检修复时经作者同意 2200→2400（悬浮窗/留存/自启等 v0.2 需求 + 复检 BUG-26~31）
 # v0.2 开工时经作者同意 2400→2600（音频检测/日期切换/趋势图）
-MAX_CODE_LINES = 2600
+# v0.3 开工时经作者同意 2600→3000（i18n 双语文案/悬浮窗/语言切换；先做完，后期再收）
+MAX_CODE_LINES = 3000
 # 阈值必须只在 config.py 定义一次，其它模块只许用 config.XXX 访问
 UI_FORBIDDEN = ("sqlite3", "select ", "insert ", "update ", "delete from",
                 ".execute(", ".executemany(", ".executescript(")
 UI_FILES_PREFIX = "ui_"
-# UI 不许反向依赖采集层
+# UI 不许反向依赖采集层；i18n 是最底层文案表，只许依赖 config
 FORBIDDEN_IMPORTS = {
     "ui_main.py": {"collect"},
     "ui_scope.py": {"collect", "track"},
+    "ui_overlay.py": {"collect", "track", "apps"},
+    "i18n.py": {"apps", "collect", "track", "data", "winutil", "tray",
+                "ui_main", "ui_scope", "ui_overlay"},
     "track.py": {"apps", "collect"},
     "data.py": {"apps", "collect"},
-    "config.py": {"apps", "collect", "track", "data"},
+    "config.py": {"apps", "collect", "track", "data", "i18n"},
 }
 
 problems: list = []

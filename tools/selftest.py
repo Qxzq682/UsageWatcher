@@ -348,6 +348,7 @@ def test_static_red_lines() -> None:
 
 def test_csv_export() -> None:
     print("\n[16] CSV 导出：公式注入转义 + 行内容")
+    import i18n                                # noqa: E402
     from ui_main import _csv_safe, csv_rows      # noqa: E402  PySide6 已装，纯函数不需要 QApplication
 
     check("= 开头的单元格被转义", _csv_safe("=cmd|' /C calc'!A0") == "'=cmd|' /C calc'!A0")
@@ -356,7 +357,8 @@ def test_csv_export() -> None:
     check("普通中文名不受影响", _csv_safe("微信") == "微信")
     rows = csv_rows([{"display_name": "=危险", "exe_name": "app.exe",
                       "fg_ms": 90_000, "bg_ms": 30_000, "total_ms": 120_000, "fg_ratio": 0.75}])
-    check("表头 6 列", len(rows[0]) == 6 and rows[0][0] == "应用")
+    # 表头文案与 i18n 同源（不写死中文：切英文后本测试必须照常通过）
+    check("表头 6 列", len(rows[0]) == 6 and rows[0][0] == i18n.t("hdr_app"))
     check("数据行转义与数值换算正确",
           rows[1][0] == "'=危险" and rows[1][2] == 1.5 and rows[1][4] == 2.0
           and rows[1][5] == 75.0, str(rows[1]))
@@ -650,18 +652,18 @@ def test_idle_gate_audio_exempt() -> None:
 
 
 def test_period_ranges() -> None:
-    print("\n[27] 统计周期：昨日/按日（v0.2 A2）")
+    print("\n[27] 统计周期：昨日/按日（v0.2 A2；v0.3 起业务键为英文，显示走 i18n）")
     from datetime import date as _d, timedelta as _td
     from ui_main import period_range
     y = _d.today() - _td(days=1)
-    check("昨日周期 = 单日", period_range("昨日") == (y.isoformat(),) * 2,
-          str(period_range("昨日")))
+    check("昨日周期 = 单日", period_range("yesterday") == (y.isoformat(),) * 2,
+          str(period_range("yesterday")))
     check("按日指定日期 = 单日",
-          period_range("按日", day=_d(2026, 9, 15)) == ("2026-09-15",) * 2)
+          period_range("byday", day=_d(2026, 9, 15)) == ("2026-09-15",) * 2)
     check("按日接受 ISO 字符串",
-          period_range("按日", day="2026-09-15") == ("2026-09-15",) * 2)
-    check("按日缺省 = 昨天", period_range("按日") == (y.isoformat(),) * 2)
-    check("今日不受影响", period_range("今日") == (_d.today().isoformat(),) * 2)
+          period_range("byday", day="2026-09-15") == ("2026-09-15",) * 2)
+    check("按日缺省 = 昨天", period_range("byday") == (y.isoformat(),) * 2)
+    check("今日不受影响", period_range("today") == (_d.today().isoformat(),) * 2)
 
 
 def test_autostart() -> None:
@@ -703,6 +705,44 @@ def test_segment_retention() -> None:
         store.close()
 
 
+def test_i18n_tables() -> None:
+    print("\n[30] i18n：中英字典 key 一致 + 文案回落（v0.3）")
+    import i18n
+    from ui_main import PERIOD_KEYS
+    from ui_scope import CATEGORY_KEYS
+    zh_keys, en_keys = set(i18n._ZH), set(i18n._EN)
+    check("zh 与 en 的 key 集合完全一致", zh_keys == en_keys,
+          "zh 独有 %s / en 独有 %s" % (sorted(zh_keys - en_keys)[:5],
+                                       sorted(en_keys - zh_keys)[:5]))
+    check("t() 对未知 key 回落为 key 本身（R8：宁可丑不肯哑）",
+          i18n.t("__no_such_key__") == "__no_such_key__")
+    check("周期/分类文案全量存在（切语言后界面不缺字）",
+          all(i18n.t("period_" + k) != k for k in PERIOD_KEYS)
+          and all(i18n.t("cat_" + c) != c for c in CATEGORY_KEYS))
+    check("语言值合法（zh/en）", i18n.LANGS == ("zh", "en") and i18n.current() in i18n.LANGS)
+
+
+def test_overlay_prefs() -> None:
+    print("\n[31] 悬浮窗：偏好键 / 退出标志 / 纯函数（v0.3）")
+    import i18n
+    import ui_overlay
+    check("config DEFAULTS 含 ui_language 与 overlay_enabled（默认关，R6 精神）",
+          config.DEFAULTS.get("ui_language") == "zh"
+          and config.DEFAULTS.get("overlay_enabled") is False)
+    check("overlay.flag 落在用户数据目录（与 stop.flag 同一套零 IPC 思路）",
+          config.overlay_flag_path().parent == config.data_dir()
+          and config.overlay_flag_path().name == "overlay.flag")
+    today = track.day_of(int(time.time() * 1000))
+    check("_today_iso 返回今天（ISO 串）",
+          ui_overlay._today_iso() == (today, today), str(ui_overlay._today_iso()))
+    check("_fmt 分钟/小时格式与 i18n 一致",
+          ui_overlay._fmt(0) == i18n.t("dur_min", 0)
+          and ui_overlay._fmt(90 * 60_000) == i18n.t("dur_hm", 1, 30),
+          "%s / %s" % (ui_overlay._fmt(0), ui_overlay._fmt(90 * 60_000)))
+    check("悬浮窗互斥体名含 Local 前缀（单会话不跨用户）",
+          ui_overlay._MUTEX.startswith("Local\\"))
+
+
 def main() -> int:
     print("=" * 68)
     print(" 自测：纯逻辑回归 + 安全红线")
@@ -736,6 +776,8 @@ def main() -> int:
     test_period_ranges()
     test_autostart()
     test_segment_retention()
+    test_i18n_tables()
+    test_overlay_prefs()
 
     print("\n" + "=" * 68)
     print("通过 %d 项，失败 %d 项" % (PASSED, len(FAILED)))

@@ -9,9 +9,9 @@ a = Analysis(
     pathex=['src'],
     binaries=[],
     datas=[],
-    # ui_main/ui_scope 是函数内 import（守护模式永不加载 Qt），
+    # ui_main/ui_scope/ui_overlay 是函数内 import（守护模式永不加载 Qt），
     # pycaw 是 audio.py 函数内 import —— 显式声明防漏收
-    hiddenimports=['ui_main', 'ui_scope', 'pycaw.pycaw'],
+    hiddenimports=['ui_main', 'ui_scope', 'ui_overlay', 'pycaw.pycaw'],
     # ssl/_ssl 明确排除：R4 零网络红线，程序根本不该有 TLS 能力
     excludes=['tkinter', 'PyQt5', 'PyQt6', 'numpy', 'matplotlib',
               'ssl', '_ssl',
@@ -25,13 +25,20 @@ a = Analysis(
 # 依据 dist2 实测体积构成剔除零使用项，94MB → 约 50MB。任何一项被误删，
 # 构建冒烟（tools/_pkg_smoke2.py）会当场暴露。
 
+# v0.3 多语言：保留通用语言的 Qt 界面翻译（对话框按钮随界面语言），
+# 冷门语言仍剔（这是 D1 剔除 7MB 的主要构成）。只留 qtbase_*.qm。
+_QM_KEEP = {"qtbase_zh_cn", "qtbase_zh_tw", "qtbase_ja", "qtbase_ko",
+            "qtbase_ru", "qtbase_de", "qtbase_fr", "qtbase_es",
+            "qtbase_pt", "qtbase_pt_br", "qtbase_it"}
+
 def _keep(entry) -> bool:
     """entry 是 (dest_name, source, kind)。返回 False = 从包里剔除。"""
     name = entry[0].lower().replace("\\", "/")
     if "opengl32sw" in name:
         return False   # 20MB 软件OpenGL；QPainter 无 GPU 路径用不上
-    if "/translations/" in name and not name.endswith("qtbase_zh_cn.qm"):
-        return False   # 只留中文 QMessageBox 按钮翻译，其余几十种语言全删
+    if "/translations/" in name:
+        stem = name.rsplit("/", 1)[-1].rsplit(".", 1)[0]
+        return stem in _QM_KEEP   # v0.3：恢复通用语言（qtbase 对话框按钮）；冷门语言仍删
     if "qt6network" in name or "qtnetwork" in name:
         return False   # Qt 网络模块（含插件），零联网程序不带走
     if "qt6svg" in name or "qsvg" in name or "qsvgicon" in name:

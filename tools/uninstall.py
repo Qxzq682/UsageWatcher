@@ -89,16 +89,18 @@ def dir_size_mb(path: Path) -> float:
 
 
 def find_own_processes() -> list:
-    """本项目相关进程：打包 exe，或源码解释器跑本项目 src\\app.py（绝对路径）。
-    用完整脚本路径匹配而非裸 "app.py"，避免其它进程命令行恰好提到
-    app.py 字样时误伤；本脚本自己是 uninstall.py，不会匹配到。"""
-    marker = str(ROOT / "src" / "app.py").lower()
+    """本项目相关进程：打包 exe，或源码解释器跑本项目 src\\app.py /
+    src\\ui_overlay.py（绝对路径）。用完整脚本路径匹配而非裸文件名，
+    避免其它进程命令行恰好提到同名字样时误伤；本脚本自己是
+    uninstall.py，不会匹配到。悬浮窗（v0.3）是独立进程，也要一并停。"""
+    markers = [str(ROOT / "src" / "app.py").lower(),
+               str(ROOT / "src" / "ui_overlay.py").lower()]
     own = []
     for proc in psutil.process_iter(["pid", "exe", "cmdline"]):
         try:
             exe = (proc.info["exe"] or "").lower()
             cl = " ".join(proc.info["cmdline"] or []).lower()
-            if os.path.basename(exe) == "usagewatcher.exe" or marker in cl:
+            if os.path.basename(exe) == "usagewatcher.exe" or any(m in cl for m in markers):
                 own.append(proc)
         except psutil.Error:
             continue

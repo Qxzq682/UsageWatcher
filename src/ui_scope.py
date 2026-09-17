@@ -22,25 +22,17 @@ from PySide6.QtWidgets import (
 )
 
 import config
+import i18n
 import winutil
 
-LEVEL_TEXT = {"yes": "可监测", "partial": "有限监测", "no": "不可监测"}
-LEVEL_MARK = {"yes": "[可监测]", "partial": "[有限监测]", "no": "[不可监测] 锁定"}
 LEVEL_COLOR = {"yes": QColor("#3B6D11"), "partial": QColor("#854F0B"), "no": QColor("#A32D2D")}
 
-CATEGORY_TEXT = {
-    "third_party": "第三方软件",
-    "windows": "Windows 自带与外设",
-    "system": "系统组件与服务",
-    "suggest_exclude": "建议排除",
-}
-CATEGORY_ORDER = ["全部", "第三方软件", "Windows 自带与外设", "系统组件与服务", "建议排除"]
+# 业务键 = 数据库 category 值（逻辑判断只用 key，显示经 i18n.t("cat_"+key)）
+CATEGORY_KEYS = ("all", "third_party", "windows", "system", "suggest_exclude")
 
 
 class ScopePage(QWidget):
     """逐软件勾选；不可监测项灰显锁死。"""
-
-    HEADERS = ("应用", "发布者", "能否监测", "是否监测", "说明")
 
     def __init__(self, store) -> None:
         super().__init__()
@@ -48,12 +40,12 @@ class ScopePage(QWidget):
         self._rows: list = []
 
         self.filter = QComboBox()
-        self.filter.addItems(CATEGORY_ORDER)
+        self.filter.addItems([i18n.t("cat_" + k) for k in CATEGORY_KEYS])
         self.search = QLineEdit()
-        self.search.setPlaceholderText("搜索应用名…")
-        self.btn_all = QPushButton("全选第三方")
-        self.btn_none = QPushButton("全部取消")
-        self.btn_recheck = QPushButton("重新检测")
+        self.search.setPlaceholderText(i18n.t("search_ph"))
+        self.btn_all = QPushButton(i18n.t("btn_select_third"))
+        self.btn_none = QPushButton(i18n.t("btn_deselect_all"))
+        self.btn_recheck = QPushButton(i18n.t("btn_recheck"))
         self.status = QLabel("")
 
         top = QHBoxLayout()
@@ -63,8 +55,10 @@ class ScopePage(QWidget):
         top.addWidget(self.btn_none)
         top.addWidget(self.btn_recheck)
 
-        self.table = QTableWidget(0, len(self.HEADERS))
-        self.table.setHorizontalHeaderLabels(self.HEADERS)
+        headers = (i18n.t("hdr_app"), i18n.t("hdr_publisher"), i18n.t("hdr_monitorable"),
+                   i18n.t("hdr_tracked"), i18n.t("hdr_note"))
+        self.table = QTableWidget(0, len(headers))
+        self.table.setHorizontalHeaderLabels(headers)
         self.table.verticalHeader().setVisible(False)
         self.table.setSelectionBehavior(QAbstractItemView.SelectRows)
         self.table.setEditTriggers(QAbstractItemView.NoEditTriggers)
@@ -74,16 +68,12 @@ class ScopePage(QWidget):
             self.table.horizontalHeader().setSectionResizeMode(column, QHeaderView.ResizeToContents)
 
         layout = QVBoxLayout(self)
-        layout.addWidget(QLabel(
-            "打勾 = 记录这个软件的时长。标为「不可监测」的行已被锁定 —— "
-            "技术上拿不到归属信息（系统拒绝访问），所以无法勾选。\n"
-            "「重新检测」会把误判的项放回待重检状态，守护进程下次探测到时自动重新定性"
-            "（系统组件保持锁死）。"))
+        layout.addWidget(QLabel(i18n.t("scope_note")))
         layout.addLayout(top)
         layout.addWidget(self.table, 1)
         layout.addWidget(self.status)
 
-        self.filter.currentTextChanged.connect(self.reload)
+        self.filter.currentIndexChanged.connect(self.reload)
         self.search.textChanged.connect(self.reload)
         self.btn_all.clicked.connect(lambda: self._bulk(True))
         self.btn_none.clicked.connect(lambda: self._bulk(False))
@@ -95,14 +85,14 @@ class ScopePage(QWidget):
 
     def reload(self) -> None:
         rows = self.store.capability_rows()
-        wanted = self.filter.currentText()
+        wanted = CATEGORY_KEYS[self.filter.currentIndex()]
         keyword = self.search.text().strip().lower()
 
         self._rows = []
         for row in rows:
             name = row["display_name"] or row["exe_name"] or row["app_key"]
-            category = CATEGORY_TEXT.get(row["category"], row["category"] or "")
-            if wanted != "全部" and category != wanted:
+            category = row["category"] or ""
+            if wanted != "all" and category != wanted:
                 continue
             if keyword and keyword not in name.lower() and keyword not in (row["app_key"] or "").lower():
                 continue
@@ -124,9 +114,10 @@ class ScopePage(QWidget):
             self.table.setItem(index, 0, name_item)
             self.table.setItem(index, 1, QTableWidgetItem(row["publisher"] or "—"))
 
-            level_item = QTableWidgetItem("%s  %s" % (LEVEL_MARK[level], LEVEL_TEXT[level]))
+            level_text, level_mark = i18n.t("lvl_" + level), i18n.t("mark_" + level)
+            level_item = QTableWidgetItem("%s  %s" % (level_mark, level_text))
             level_item.setForeground(LEVEL_COLOR[level])
-            level_item.setToolTip(reason or "可以正常监测")
+            level_item.setToolTip(reason or i18n.t("monitor_ok"))
             self.table.setItem(index, 2, level_item)
 
             # ★ 强制不可更改：不可监测项**不注册 ItemIsUserCheckable**，
@@ -135,7 +126,7 @@ class ScopePage(QWidget):
             check.setData(Qt.UserRole, row["app_key"])
             if is_locked:
                 check.setFlags(Qt.ItemIsSelectable)
-                check.setText("[锁]")
+                check.setText(i18n.t("locked_mark"))
                 check.setForeground(LEVEL_COLOR["no"])
                 check.setToolTip(reason)
             else:
@@ -144,15 +135,14 @@ class ScopePage(QWidget):
                 checked += 1 if row["enabled"] else 0
             self.table.setItem(index, 3, check)
 
-            note = QTableWidgetItem(reason or category)
+            note = QTableWidgetItem(reason or (i18n.t("cat_" + category) if category else ""))
             note.setToolTip(reason)
             if not reason:
                 note.setForeground(QColor("#888780"))
             self.table.setItem(index, 4, note)
         self.table.blockSignals(False)
 
-        self.status.setText("显示 %d 个软件 · 已勾选 %d 个 · 不可监测 %d 个（已自动锁定，无法勾选）"
-                            % (len(self._rows), checked, locked))
+        self.status.setText(i18n.t("status_line", len(self._rows), checked, locked))
 
     # ---- 交互 ----
 
@@ -162,13 +152,10 @@ class ScopePage(QWidget):
         self.reload()
         if reset:
             QMessageBox.information(
-                self, "重新检测",
-                "已把 %d 个「不可监测」项重置为待重检状态。\n\n"
-                "守护进程下次探测到它们时会自动重新定性；若仍读不到，会如实写回「不可监测」。"
-                % reset)
+                self, i18n.t("recheck_title"), i18n.t("recheck_done", reset))
         else:
             QMessageBox.information(
-                self, "重新检测", "当前没有可重新检测的「不可监测」项（系统组件保持锁死）。")
+                self, i18n.t("recheck_title"), i18n.t("recheck_none"))
 
     def _on_item_changed(self, item: QTableWidgetItem) -> None:
         if item.column() != 3:
@@ -183,8 +170,8 @@ class ScopePage(QWidget):
             item.setCheckState(Qt.Unchecked)
             self.table.blockSignals(False)
             QMessageBox.information(
-                self, "无法启用",
-                "这个程序技术上无法监测，所以不能勾选。\n\n原因：%s" % (item.toolTip() or "系统拒绝访问"))
+                self, i18n.t("enable_fail_title"),
+                i18n.t("enable_fail", item.toolTip() or i18n.t("access_denied")))
             return
         self.reload()
 
@@ -203,22 +190,9 @@ class ScopePage(QWidget):
 
 class PrivacyPage(QWidget):
     """设置页：采集了什么 / 绝不采集什么 / 数据放哪 / 怎么删，以及
-    开机自启与卸载入口。卸载走项目根目录的卸载.bat（预览先行、逐项
-    确认、全部送回收站），点按钮后本窗口自动退出给向导让路。"""
-
-    COLLECTED = [
-        ("前台窗口句柄 → 进程 ID", "判断哪个程序在前台", "不落库（瞬时值）"),
-        ("程序可执行文件全路径", "标识是哪个软件", "落库"),
-        ("版本资源：产品名 / 版本 / 发布者", "界面上显示可读名称", "落库"),
-        ("进程 CPU 时间、磁盘读写字节数", "判断后台是否真有活动", "不落库（仅差分）"),
-        ("距上次输入的毫秒数", "空闲时自动降频省电", "不落库"),
-        ("时间戳（起止）", "算时长", "落库"),
-    ]
-
-    NEVER = ("窗口标题、控件文字", "网址 / 网页内容", "聊天内容", "键盘输入", "鼠标轨迹",
-             "剪贴板", "截屏 / 录屏", "文件内容与文件名（exe 自身路径除外）",
-             "浏览器历史 / 书签 / 密码", "麦克风 / 摄像头", "网络流量内容",
-             "账号 / 机器名 / IP / 位置", "任何遥测或崩溃上报")
+    开机自启、界面语言、桌面悬浮窗与卸载入口。卸载走项目根目录的
+    卸载.bat（预览先行、逐项确认、全部送回收站），点按钮后本窗口
+    自动退出给向导让路。"""
 
     def __init__(self, store) -> None:
         super().__init__()
@@ -227,21 +201,38 @@ class PrivacyPage(QWidget):
         view.setOpenExternalLinks(False)
         view.setHtml(self._html())
 
-        clear = QPushButton("清空全部数据")
+        clear = QPushButton(i18n.t("btn_clear"))
         clear.clicked.connect(self._clear)
-        open_dir = QPushButton("打开数据目录")
+        open_dir = QPushButton(i18n.t("btn_open_dir"))
         open_dir.clicked.connect(self._open_data_dir)
 
         # 开机自启（v0.2 B2）：默认不写（R6），勾选才写 HKCU 自己的 Run 项
-        self.autostart = QCheckBox(
-            "开机自动启动监测（仅写入当前用户的注册表 Run 项，取消勾选即删除）")
+        self.autostart = QCheckBox(i18n.t("chk_autostart"))
         self.autostart.setChecked(winutil.autostart_enabled())
         self.autostart.toggled.connect(self._set_autostart)
 
+        # 界面语言（v0.3）：保存偏好，重启统计窗口后生效
+        lang_row = QHBoxLayout()
+        lang_row.addWidget(QLabel(i18n.t("lbl_language")))
+        self.lang_pick = QComboBox()
+        self.lang_pick.addItems(["简体中文", "English"])   # 语言名固定用本语言书写
+        self.lang_pick.setCurrentIndex(0 if i18n.current() == "zh" else 1)
+        self.lang_pick.currentIndexChanged.connect(self._set_language)
+        lang_row.addWidget(self.lang_pick)
+        lang_row.addWidget(QLabel(i18n.t("lang_restart_note")))
+        lang_row.addStretch(1)
+
+        # 桌面悬浮窗（v0.3）：独立进程，默认关；取消勾选经 overlay.flag 优雅退出
+        self.overlay_chk = QCheckBox(i18n.t("chk_overlay"))
+        self.overlay_chk.setChecked(bool(config.load().get("overlay_enabled")))
+        self.overlay_chk.toggled.connect(self._set_overlay)
+        overlay_note = QLabel(i18n.t("overlay_note"))
+        overlay_note.setStyleSheet("color:#888780;")
+
         # 软件管理（v0.2 C3）：卸载入口集成进软件，不再要用户去翻 tools 目录
         manage = QHBoxLayout()
-        manage.addWidget(QLabel("软件管理："))
-        self.uninstall_btn = QPushButton("卸载本软件…")
+        manage.addWidget(QLabel(i18n.t("lbl_manage")))
+        self.uninstall_btn = QPushButton(i18n.t("btn_uninstall"))
         self.uninstall_btn.clicked.connect(self._uninstall)
         manage.addWidget(self.uninstall_btn)
         manage.addStretch(1)
@@ -254,29 +245,54 @@ class PrivacyPage(QWidget):
         layout = QVBoxLayout(self)
         layout.addWidget(view, 1)
         layout.addWidget(self.autostart)
+        layout.addLayout(lang_row)
+        layout.addWidget(self.overlay_chk)
+        layout.addWidget(overlay_note)
         layout.addLayout(buttons)
         layout.addLayout(manage)
+
+    def _set_language(self, index: int) -> None:
+        lang = "zh" if index == 0 else "en"
+        try:
+            config.save({**config.load(), "ui_language": lang})
+        except OSError:
+            self._rollback(self.lang_pick, 0 if i18n.current() == "zh" else 1)
+            QMessageBox.warning(self, i18n.t("set_fail_title"), i18n.t("cfg_save_fail"))
+
+    def _set_overlay(self, on: bool) -> None:
+        try:
+            config.save({**config.load(), "overlay_enabled": bool(on)})
+        except OSError:
+            self._rollback(self.overlay_chk, not on)
+            QMessageBox.warning(self, i18n.t("set_fail_title"), i18n.t("cfg_save_fail"))
+            return
+        if on:
+            import ui_overlay
+            ui_overlay.launch_overlay()
+        else:
+            config.overlay_flag_path().write_text("", encoding="utf-8")
+
+    @staticmethod
+    def _rollback(widget, checked) -> None:
+        """失败必须回滚 UI（R8），不许让勾选状态与事实不符。"""
+        widget.blockSignals(True)
+        widget.setChecked(bool(checked))
+        widget.blockSignals(False)
 
     def _uninstall(self) -> None:
         """软件内卸载入口：确认后启动卸载向导（tools/uninstall.py，经卸载.bat），
         本窗口退出让路。删除一律送回收站、向导里逐项确认（R8），这里不做静默卸载。"""
         if getattr(sys, "frozen", False):
             QMessageBox.information(
-                self, "卸载",
-                "这是打包版：直接删除程序目录即可完成卸载；\n"
-                "使用数据在 %s，不需要时可一并删除。" % config.data_dir())
+                self, i18n.t("un_title"), i18n.t("un_frozen_msg", config.data_dir()))
             return
         root = Path(config.__file__).resolve().parent.parent
         bat = root / "卸载.bat"
         if not bat.exists():
-            QMessageBox.warning(self, "卸载", "未找到卸载向导：%s" % bat)
+            QMessageBox.warning(self, i18n.t("un_title"), i18n.t("un_bat_missing", bat))
             return
         answer = QMessageBox.warning(
-            self, "卸载确认",
-            "将停止监测程序，并把以下内容送回收站（可恢复）：\n"
-            "  · 开机自启项（若有）\n  · 桌面快捷方式\n  · 全部使用数据（%s）\n\n"
-            "程序文件不会删除（绿色程序，不需要时删目录即可）。\n"
-            "向导窗口会弹出，请在其中确认执行。\n\n确定继续吗？" % config.data_dir(),
+            self, i18n.t("un_title"), i18n.t("un_confirm", config.data_dir()),
             QMessageBox.Yes | QMessageBox.No, QMessageBox.No)
         if answer != QMessageBox.Yes:
             return
@@ -287,11 +303,8 @@ class PrivacyPage(QWidget):
         if winutil.set_autostart(on):
             return
         # 失败必须回滚 UI 并可见（R8），不许让勾选状态与注册表事实不符
-        self.autostart.blockSignals(True)
-        self.autostart.setChecked(winutil.autostart_enabled())
-        self.autostart.blockSignals(False)
-        QMessageBox.warning(self, "设置失败",
-                            "写入注册表失败（可能被安全软件拦截），已恢复原状态。")
+        self._rollback(self.autostart, winutil.autostart_enabled())
+        QMessageBox.warning(self, i18n.t("set_fail_title"), i18n.t("set_fail_msg"))
 
     def _open_data_dir(self) -> None:
         from PySide6.QtCore import QUrl
@@ -299,40 +312,14 @@ class PrivacyPage(QWidget):
         QDesktopServices.openUrl(QUrl.fromLocalFile(str(config.data_dir())))
 
     def _html(self) -> str:
-        collected = "".join(
-            "<tr><td>%s</td><td>%s</td><td>%s</td></tr>" % row for row in self.COLLECTED)
-        never = "".join("<li>%s</li>" % item for item in self.NEVER)
-        return f"""
-        <h3>本程序采集什么</h3>
-        <table border="1" cellspacing="0" cellpadding="4">
-          <tr><th>字段</th><th>用途</th><th>是否落库</th></tr>
-          {collected}
-        </table>
-
-        <h3>绝不采集</h3>
-        <ul>{never}</ul>
-
-        <h3>数据存在哪</h3>
-        <p><code>{config.data_dir()}</code><br>
-        只写入这个目录（当前用户的私有目录），<b>不会写程序目录</b>，
-        也不会修改任何系统设置或注册表项（开机自启默认关闭，需要你主动勾选）。</p>
-
-        <h3>不联网</h3>
-        <p>本程序<b>不包含任何联网代码</b>，不监听任何端口，不上传任何数据。
-        你可以自己验证：关掉程序外的一切干扰，运行
-        <code>tools\\audit.py</code>，它会扫描源码里的网络调用并检查本进程是否在监听端口。</p>
-
-        <h3>怎么彻底删除</h3>
-        <p>点下面的「清空全部数据」删除所有记录；或直接删除整个目录
-        <code>{config.data_dir()}</code>。</p>
-        """
+        # 模板里数据目录出现两处（%s ×2）
+        return i18n.t("privacy_html") % (config.data_dir(), config.data_dir())
 
     def _clear(self) -> None:
         answer = QMessageBox.question(
-            self, "确认清空",
-            "将删除全部使用时长记录，且不可恢复。\n\n确定继续吗？",
+            self, i18n.t("clear_title"), i18n.t("clear_confirm"),
             QMessageBox.Yes | QMessageBox.No, QMessageBox.No)
         if answer != QMessageBox.Yes:
             return
         self.store.clear_all()
-        QMessageBox.information(self, "已完成", "数据已清空。")
+        QMessageBox.information(self, i18n.t("clear_done_title"), i18n.t("clear_done"))
