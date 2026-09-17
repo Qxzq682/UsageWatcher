@@ -41,3 +41,5 @@ _pkg_smoke_env*/
 _diag.txt
 _err.txt
 _out.txt
+build3/
+dist3/

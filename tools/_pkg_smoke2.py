@@ -12,8 +12,17 @@ import time
 from pathlib import Path
 
 ROOT = Path(__file__).resolve().parent.parent
-EXE = ROOT / "dist2" / "UsageWatcher" / "UsageWatcher.exe"
-SANDBOX = ROOT / "_pkg_smoke_env8"      # 全新目录：全程零删除操作（本轮删除被沙箱粘性拦截）
+# 打包目录可参数化（--dist3 / --dist2 / 任意 dist 目录名），默认 dist3（D1 瘦身版）
+_args = sys.argv[1:]
+_dist = "dist3"
+if "--dist2" in _args:
+    _dist = "dist2"
+elif "--dist3" in _args:
+    _dist = "dist3"
+elif any(a.startswith("--dist") for a in _args):
+    _dist = next(a[2:] for a in _args if a.startswith("--dist"))
+EXE = ROOT / _dist / "UsageWatcher" / "UsageWatcher.exe"
+SANDBOX = ROOT / "_pkg_smoke_env9"      # 全新目录：全程零删除操作（本轮删除被沙箱粘性拦截）
 FLAG = SANDBOX / "UsageWatcher" / "stop.flag"
 DB = SANDBOX / "UsageWatcher" / "usage.db"
 
