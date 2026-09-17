@@ -60,6 +60,9 @@ BG_SAMPLE_INTERVAL_IDLE_S = 15.0  # 空闲自适应降频后的采样周期
 IDLE_DOWNGRADE_AFTER_S = 300      # 无输入超过这么久就降频
 CPU_ACTIVE_PCT = 2.0              # 单核百分比阈值（psutil 口径，可 >100）
 IO_ACTIVE_BPS = 32768             # 磁盘读写字节/秒 阈值（32KB/s）
+AUDIO_ACTIVE_PEAK = 0.01          # 音频会话峰值 ≥ 此值算"正在出声"（实测播音 0.27/静默 0.000）
+AUDIO_POLL_INTERVAL_S = 1.0       # 音频会话枚举节流（COM 调用约 1ms，1s 足够）
+AUDIO_EXEMPT_WINDOW_S = 30        # AFK 豁免记忆窗：前台应用 30s 内出过声就不截断（防对白间隙翻转）
 ACTIVE_N = 2                      # 连续 N 轮活跃才开段
 IDLE_N = 3                        # 连续 N 轮不活跃才收尾
 MERGE_GAP_MS = 10000              # 后台相邻同类片段间隔 <= 此值就合并

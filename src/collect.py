@@ -19,6 +19,7 @@ from typing import Callable, List, Optional
 import psutil
 
 import apps
+import audio
 import config
 import winutil
 
@@ -171,6 +172,8 @@ class FgWatcher:
         依赖 track。返回需要落库的闭合片段（可能为空）。
         """
         idle = winutil.idle_milliseconds() >= config.FG_IDLE_CUTOFF_S * 1000
+        if idle and self._last_pid in audio.recently_audible_pids():
+            idle = False    # 前台应用自己在出声（视频/会议）：人可能还在看，豁免（v0.2 A1）
         if idle == self.idle_cut:
             return []
         self.idle_cut = idle
@@ -225,6 +228,7 @@ class BgSampler:
         self._candidates: list = []
         self._last_rebuild = 0.0
         self._last_sample = 0.0
+        self._audible: set = set()      # 本轮正在出声的 pid（v0.2 A1 第三判活指标）
         # R8：采集失败必须显式计数并能在 UI 看到，不许静默当成"没有活动"
         self.error_count = 0
 
@@ -252,13 +256,18 @@ class BgSampler:
             if path and path.lower() in known_exes:
                 others.append(pid)
 
+        # 音频会话里的 pid 直接进候选（v0.2 A1）：出声进程哪怕无窗口、
+        # 不在已知列表（如临时脚本播音），其时长也该被归因记录
+        audible = audio.active_pids()
+
         # 去重 + 排除自身：前台 PID 常常同时也在 visible 里，
         # 重复进候选会让同一个进程一轮被采样多次 → 第二次起基线被打乱，
         # 于是出现"判为活跃但 cpu=0.00%"这种自相矛盾的结果（实测踩过）
         self_pid = os.getpid()
         ordered: list = []
         seen: set = {self_pid}
-        for pid in ([foreground] if foreground else []) + sorted(visible) + sorted(others):
+        for pid in ([foreground] if foreground else []) + sorted(visible) \
+                + sorted(others) + sorted(audible):
             if pid and pid not in seen:
                 seen.add(pid)
                 ordered.append(pid)
@@ -277,6 +286,7 @@ class BgSampler:
                 self._rebuild_candidates(known_exes or set())
             except Exception:
                 self.error_count += 1
+        self._audible = audio.active_pids()   # 本轮出声 pid（v0.2 A1）
         # 先取上一次的采样时刻再更新，否则差值为 0 → IO 速率会被算成虚高
         previous_mono = self._last_sample
         self._last_sample = now_mono
@@ -348,7 +358,8 @@ class BgSampler:
             record["warm"] = False      # 这一轮才有可用的差分窗口
             return None
 
-        active = cpu_pct >= config.CPU_ACTIVE_PCT or io_rate >= config.IO_ACTIVE_BPS
+        active = (cpu_pct >= config.CPU_ACTIVE_PCT or io_rate >= config.IO_ACTIVE_BPS
+                  or pid in self._audible)   # 在出声也判活跃（在线音乐盲区，v0.2 A1）
         return Sample(ts_ms=now_ms, pid=pid, from_event=False, active=active)
 
     # ---- 唤醒/解锁后必须重置（否则休眠期间的计数差会造出整段虚高） ----

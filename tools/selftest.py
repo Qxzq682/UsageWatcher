@@ -18,6 +18,7 @@ ROOT = Path(__file__).resolve().parent.parent
 sys.path.insert(0, str(ROOT / "src"))
 
 import apps      # noqa: E402
+import audio     # noqa: E402
 import collect   # noqa: E402
 import config    # noqa: E402
 import data      # noqa: E402
@@ -603,6 +604,51 @@ def test_idle_gate() -> None:
          winutil.is_minimized, winutil.pid_of_window) = saved
 
 
+def test_audio_gate() -> None:
+    print("\n[25] 音频判活：峰值阈值 + 真实会话冒烟（v0.2 A1）")
+    check("峰值阈值判定（实测播音 0.27 / 静默 0.000，阈值 0.01）",
+          audio.is_audible(0.05) and not audio.is_audible(0.005))
+    pids = audio.active_pids()
+    check("真实 COM 枚举返回 set 且不抛异常", isinstance(pids, set), str(type(pids)))
+    recent = audio.recently_audible_pids()
+    check("记忆窗查询返回 set（AFK 豁免用）", isinstance(recent, set), str(type(recent)))
+    check("枚举无错误累积（R8）", audio.error_count == 0, "error_count=%d" % audio.error_count)
+    check("枚举结果与记忆窗自洽（出声者必在窗内）", pids <= recent or not (pids - recent),
+          "pids=%s recent=%s" % (pids, recent))
+
+
+def test_idle_gate_audio_exempt() -> None:
+    print("\n[26] AFK 豁免：前台应用出声（视频）不截断，后台音乐不豁免（v0.2 A1）")
+    w = collect.FgWatcher(lambda _s: None)
+    trk = track.FgTracker()
+    trk.on_fg("video.exe", 111, ms("11:00"))
+    w._last_pid = 111
+    saved = (winutil.idle_milliseconds, audio.recently_audible_pids)
+    try:
+        winutil.idle_milliseconds = lambda: 600_000           # 10 分钟无输入
+        audio.recently_audible_pids = lambda: {111}           # 前台应用正在出声
+        out = w.idle_gate(ms("11:06"), trk.force_close)
+        check("前台出声时 AFK 豁免（不截断、不闩上）",
+              out == [] and w.idle_cut is False and trk.current() == "video.exe", str(out))
+
+        audio.recently_audible_pids = lambda: set()           # 声音停了，人还没回来
+        out = w.idle_gate(ms("11:08"), trk.force_close)
+        check("声音停止后闸门照常截断并标 FLAG_IDLE",
+              len(out) == 1 and out[0].flags == config.FLAG_IDLE, str(out))
+
+        winutil.idle_milliseconds = lambda: 1_000             # （人回来过，解闩）
+        w.idle_gate(ms("12:01"), trk.force_close)
+        winutil.idle_milliseconds = lambda: 400_000           # 又离开
+        trk.on_fg("ide.exe", 333, ms("12:02"))                # 新前台：挂着 IDE 离开
+        w._last_pid = 333
+        audio.recently_audible_pids = lambda: {222}           # 别的应用在放音乐
+        out = w.idle_gate(ms("12:08"), trk.force_close)
+        check("后台音乐不豁免前台（BUG-32 不复发）",
+              len(out) == 1 and out[0].flags == config.FLAG_IDLE, str(out))
+    finally:
+        winutil.idle_milliseconds, audio.recently_audible_pids = saved
+
+
 def main() -> int:
     print("=" * 68)
     print(" 自测：纯逻辑回归 + 安全红线")
@@ -631,6 +677,8 @@ def main() -> int:
     test_maintenance_cleans_junk()
     test_finalize_fg_no_gap_fill()
     test_idle_gate()
+    test_audio_gate()
+    test_idle_gate_audio_exempt()
 
     print("\n" + "=" * 68)
     print("通过 %d 项，失败 %d 项" % (PASSED, len(FAILED)))

@@ -15,6 +15,7 @@ import time
 sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
 
 import apps      # noqa: E402
+import audio     # noqa: E402
 import collect   # noqa: E402
 import config    # noqa: E402
 import data      # noqa: E402
@@ -99,6 +100,7 @@ class Daemon:
         self.store.maintenance()
         self._worker = threading.Thread(target=self._loop, name="collector", daemon=True)
         self._worker.start()
+        audio.ensure_init()   # 采集线程的 COM 初始化（音频会话检测，v0.2 A1）
         return True
     def run(self) -> int:
         if not self.start():
