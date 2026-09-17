@@ -649,6 +649,21 @@ def test_idle_gate_audio_exempt() -> None:
         winutil.idle_milliseconds, audio.recently_audible_pids = saved
 
 
+def test_period_ranges() -> None:
+    print("\n[27] 统计周期：昨日/按日（v0.2 A2）")
+    from datetime import date as _d, timedelta as _td
+    from ui_main import period_range
+    y = _d.today() - _td(days=1)
+    check("昨日周期 = 单日", period_range("昨日") == (y.isoformat(),) * 2,
+          str(period_range("昨日")))
+    check("按日指定日期 = 单日",
+          period_range("按日", day=_d(2026, 9, 15)) == ("2026-09-15",) * 2)
+    check("按日接受 ISO 字符串",
+          period_range("按日", day="2026-09-15") == ("2026-09-15",) * 2)
+    check("按日缺省 = 昨天", period_range("按日") == (y.isoformat(),) * 2)
+    check("今日不受影响", period_range("今日") == (_d.today().isoformat(),) * 2)
+
+
 def main() -> int:
     print("=" * 68)
     print(" 自测：纯逻辑回归 + 安全红线")
@@ -679,6 +694,7 @@ def main() -> int:
     test_idle_gate()
     test_audio_gate()
     test_idle_gate_audio_exempt()
+    test_period_ranges()
 
     print("\n" + "=" * 68)
     print("通过 %d 项，失败 %d 项" % (PASSED, len(FAILED)))

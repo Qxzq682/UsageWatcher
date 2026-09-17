@@ -14,10 +14,10 @@ import os
 import sys
 from datetime import date, timedelta
 
-from PySide6.QtCore import QAbstractTableModel, QFileInfo, QModelIndex, QRectF, Qt, QTimer
+from PySide6.QtCore import QAbstractTableModel, QDate, QFileInfo, QModelIndex, QRectF, Qt, QTimer
 from PySide6.QtGui import QColor, QFont, QPainter, QPen
 from PySide6.QtWidgets import (
-    QAbstractItemView, QComboBox, QFileDialog, QFileIconProvider, QHBoxLayout,
+    QAbstractItemView, QComboBox, QDateEdit, QFileDialog, QFileIconProvider, QHBoxLayout,
     QHeaderView, QLabel, QMainWindow, QMessageBox, QPushButton, QTableView,
     QTabWidget, QVBoxLayout, QWidget,
 )
@@ -69,11 +69,21 @@ def csv_rows(rows: list) -> list:
 
 # ---------------------------------------------------------------- 周期计算
 
-PERIODS = ("今日", "本周", "本月", "近 30 天")
+PERIODS = ("今日", "昨日", "按日", "本周", "本月", "近 30 天")
 
 
-def period_range(period: str) -> tuple:
+def period_range(period: str, day=None) -> tuple:
+    """周期 → (起日, 止日) ISO 串。day 是"按日"模式的指定日期（date 对象），
+    缺省昨天；其它周期忽略 day（纯函数，便于回归）。"""
     today = date.today()
+    if period == "昨日":
+        y = today - timedelta(days=1)
+        return y.isoformat(), y.isoformat()
+    if period == "按日":
+        d = day or (today - timedelta(days=1))
+        if isinstance(d, str):
+            d = date.fromisoformat(d)
+        return d.isoformat(), d.isoformat()
     if period == "今日":
         return today.isoformat(), today.isoformat()
     if period == "本周":
@@ -249,6 +259,12 @@ class MainWindow(QMainWindow):
 
         self.period = QComboBox()
         self.period.addItems(PERIODS)
+        self.day_pick = QDateEdit()            # "按日"模式的日期选择（带日历弹窗）
+        self.day_pick.setCalendarPopup(True)
+        self.day_pick.setDisplayFormat("yyyy-MM-dd")
+        self.day_pick.setDate(QDate.currentDate().addDays(-1))
+        self.day_pick.dateChanged.connect(lambda _d: self.reload())
+        self.day_pick.hide()
         refresh = QPushButton("刷新")
         refresh.clicked.connect(self.reload)
         export = QPushButton("导出 CSV")
@@ -257,6 +273,7 @@ class MainWindow(QMainWindow):
         top = QHBoxLayout()
         top.addWidget(QLabel("统计周期"))
         top.addWidget(self.period)
+        top.addWidget(self.day_pick)
         top.addWidget(refresh)
         top.addWidget(export)
         top.addStretch(1)
@@ -317,8 +334,13 @@ class MainWindow(QMainWindow):
         timer.timeout.connect(self.reload)
         timer.start()
 
+    def _picked_day(self) -> date:
+        return self.day_pick.date().toPython()   # PySide6 是 toPython（toPyDate 是 PyQt 的）
+
     def reload(self) -> None:
-        day_from, day_to = period_range(self.period.currentText())
+        period = self.period.currentText()
+        self.day_pick.setVisible(period == "按日")
+        day_from, day_to = period_range(period, day=self._picked_day())
         rows = self.store.app_totals(day_from, day_to, limit=config.load()["rank_limit"])
         summary = self.store.totals_summary(day_from, day_to)
         self.summary.setText("活跃总时长 %s　其中前台 %s（%.0f%%）" % (
@@ -326,12 +348,12 @@ class MainWindow(QMainWindow):
             summary["fg_ratio"] * 100))
         self.model.set_rows(rows)
         self.bars.set_rows(rows)
-        # 柱状图跟随周期（BUG-7）：今日/本周只有 1~几天，单独画没有信息量，
-        # 固定近 7 天；本月/近 30 天周期够长，直接跟随周期整体。
-        period = self.period.currentText()
-        if period in ("今日", "本周"):
-            chart_from = (date.today() - timedelta(days=6)).isoformat()
-            self.daily_title.setText("近 7 天每日总时长")
+        # 柱状图跟随周期（BUG-7）：单日/本周只有 1~几天，单独画没有信息量，
+        # 固定画目标日往前 7 天的窗口趋势；本月/近 30 天周期够长，直接跟随周期整体。
+        if period in ("今日", "昨日", "按日"):
+            anchor = date.fromisoformat(day_to)
+            chart_from = (anchor - timedelta(days=6)).isoformat()
+            self.daily_title.setText("%s 前后 7 天每日总时长" % day_to)
         else:
             chart_from = day_from
             self.daily_title.setText(period + "每日总时长")
@@ -361,7 +383,7 @@ class MainWindow(QMainWindow):
 
         utf-8-sig（带 BOM）是为了 Excel 双击不乱码；全量导出，不受排行条数限制。
         """
-        day_from, day_to = period_range(self.period.currentText())
+        day_from, day_to = period_range(self.period.currentText(), day=self._picked_day())
         rows = self.store.app_totals(day_from, day_to, limit=0)
         if not rows:
             QMessageBox.information(self, "没有可导出的数据",
