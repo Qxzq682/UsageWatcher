@@ -19,9 +19,14 @@ from pathlib import Path
 ROOT = Path(__file__).resolve().parent.parent
 
 SHORTCUTS = (
-    ("软件使用时长监测.lnk", "src\\app.py", "", "开始后台采集使用时长"),
-    ("软件使用时长监测·统计.lnk", "src\\app.py", "--gui", "打开统计窗口"),
+    # 合并入口（v0.2 C2）：一个快捷方式双模式 —— 监测没跑就自动开始（顺带
+    # 弹出统计窗口），在跑就直接看统计。"首次查看时便启动"，不再要两个图标。
+    ("软件使用时长监测.lnk", "src\\app.py", "--gui",
+     "打开统计窗口（监测未运行会自动开始）"),
 )
+
+# 历史遗留：旧版双快捷方式方案的统计入口，create() 时顺手回收（送回收站）
+LEGACY_SHORTCUTS = ("软件使用时长监测·统计.lnk",)
 
 
 def find_python() -> tuple:
@@ -66,6 +71,19 @@ def create() -> int:
         print("  [%s] %s" % ("√" if ok else "x", target))
         if ok:
             print("       目标：%s %s" % (check.TargetPath, check.Arguments))
+    # 顺手把旧版"·统计.lnk"送回收站（合并后它是多余入口）
+    for name in LEGACY_SHORTCUTS:
+        legacy = desktop / name
+        if legacy.exists():
+            try:
+                sys.path.insert(0, str(Path(__file__).resolve().parent))
+                from uninstall import recycle
+                if recycle(legacy):
+                    print("  旧快捷方式已送回收站：%s" % name)
+                else:
+                    print("  [x] 回收失败（可手动删除）：%s" % legacy)
+            except Exception as exc:
+                print("  [x] 回收失败：%s（可手动删除）" % exc)
     return 0
 
 

@@ -9,12 +9,16 @@
 
 from __future__ import annotations
 
+import os
+import sys
+from pathlib import Path
+
 from PySide6.QtCore import Qt
 from PySide6.QtGui import QColor, QFont
 from PySide6.QtWidgets import (
-    QAbstractItemView, QCheckBox, QComboBox, QHBoxLayout, QHeaderView, QLabel,
-    QLineEdit, QMessageBox, QPushButton, QTableWidget, QTableWidgetItem,
-    QTextBrowser, QVBoxLayout, QWidget,
+    QAbstractItemView, QApplication, QCheckBox, QComboBox, QHBoxLayout,
+    QHeaderView, QLabel, QLineEdit, QMessageBox, QPushButton, QTableWidget,
+    QTableWidgetItem, QTextBrowser, QVBoxLayout, QWidget,
 )
 
 import config
@@ -198,7 +202,9 @@ class ScopePage(QWidget):
 
 
 class PrivacyPage(QWidget):
-    """把「采集了什么 / 绝不采集什么 / 数据放哪 / 怎么删」摊开给用户看。"""
+    """设置页：采集了什么 / 绝不采集什么 / 数据放哪 / 怎么删，以及
+    开机自启与卸载入口。卸载走项目根目录的卸载.bat（预览先行、逐项
+    确认、全部送回收站），点按钮后本窗口自动退出给向导让路。"""
 
     COLLECTED = [
         ("前台窗口句柄 → 进程 ID", "判断哪个程序在前台", "不落库（瞬时值）"),
@@ -232,6 +238,14 @@ class PrivacyPage(QWidget):
         self.autostart.setChecked(winutil.autostart_enabled())
         self.autostart.toggled.connect(self._set_autostart)
 
+        # 软件管理（v0.2 C3）：卸载入口集成进软件，不再要用户去翻 tools 目录
+        manage = QHBoxLayout()
+        manage.addWidget(QLabel("软件管理："))
+        self.uninstall_btn = QPushButton("卸载本软件…")
+        self.uninstall_btn.clicked.connect(self._uninstall)
+        manage.addWidget(self.uninstall_btn)
+        manage.addStretch(1)
+
         buttons = QHBoxLayout()
         buttons.addWidget(clear)
         buttons.addWidget(open_dir)
@@ -241,6 +255,33 @@ class PrivacyPage(QWidget):
         layout.addWidget(view, 1)
         layout.addWidget(self.autostart)
         layout.addLayout(buttons)
+        layout.addLayout(manage)
+
+    def _uninstall(self) -> None:
+        """软件内卸载入口：确认后启动卸载向导（tools/uninstall.py，经卸载.bat），
+        本窗口退出让路。删除一律送回收站、向导里逐项确认（R8），这里不做静默卸载。"""
+        if getattr(sys, "frozen", False):
+            QMessageBox.information(
+                self, "卸载",
+                "这是打包版：直接删除程序目录即可完成卸载；\n"
+                "使用数据在 %s，不需要时可一并删除。" % config.data_dir())
+            return
+        root = Path(config.__file__).resolve().parent.parent
+        bat = root / "卸载.bat"
+        if not bat.exists():
+            QMessageBox.warning(self, "卸载", "未找到卸载向导：%s" % bat)
+            return
+        answer = QMessageBox.warning(
+            self, "卸载确认",
+            "将停止监测程序，并把以下内容送回收站（可恢复）：\n"
+            "  · 开机自启项（若有）\n  · 桌面快捷方式\n  · 全部使用数据（%s）\n\n"
+            "程序文件不会删除（绿色程序，不需要时删目录即可）。\n"
+            "向导窗口会弹出，请在其中确认执行。\n\n确定继续吗？" % config.data_dir(),
+            QMessageBox.Yes | QMessageBox.No, QMessageBox.No)
+        if answer != QMessageBox.Yes:
+            return
+        os.startfile(str(bat))   # nosec B606 —— 路径由本程序常量拼出，非用户输入
+        QApplication.quit()
 
     def _set_autostart(self, on: bool) -> None:
         if winutil.set_autostart(on):

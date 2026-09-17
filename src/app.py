@@ -133,7 +133,9 @@ class Daemon:
             self.icon.set_tooltip("已暂停统计")
             return
         d = track.day_of(_now_ms()); s = self.store.totals_summary(d, d)
-        tip = "%s\n今日前台 %s · 后台 %s" % (config.APP_TITLE, _fmt_duration(s["fg_ms"]), _fmt_duration(s["bg_ms"]))
+        tip = "%s\n今日活跃 %s（前台 %s · 后台 %s）" % (
+            config.APP_TITLE, _fmt_duration(s["total_ms"]),
+            _fmt_duration(s["fg_ms"]), _fmt_duration(s["bg_ms"]))
         if self.store.error_count:
             tip += "\n[!] 采集异常 %d 次" % self.store.error_count
         self.icon.set_tooltip(tip)
@@ -381,7 +383,25 @@ def run_gui(smoke: bool = False) -> int:
     # 统计窗口自己的单实例：重复点「打开统计窗口」时第二个进程直接退（BUG-13）
     if not _acquire_mutex("Local\\UsageWatcher_GUI_" + sid):
         return 0
+    # 合并入口（v0.2 C2）：双击快捷方式 = 看统计；发现守护没跑就顺手拉起来，
+    # "首次查看时便启动"，用户不用先跑 启动.bat 再开窗口两步走。
+    if not smoke and not winutil.mutex_alive(_MUTEX_NAME + sid):
+        _start_daemon()
     return ui_main.run(smoke=smoke, daemon_alive=lambda: winutil.mutex_alive(_MUTEX_NAME + sid))
+
+
+def _start_daemon() -> None:
+    """拉起守护进程。参数全为字面量、绝不 shell=True（R5）。
+    打包版 sys.executable 即 UsageWatcher.exe（无参 = 守护模式）；
+    源码版沿用启动统计窗口的解释器（快捷方式是 pythonw，不会闪控制台）。"""
+    if getattr(sys, "frozen", False):
+        target = [sys.executable]
+    else:
+        target = [sys.executable, os.path.abspath(__file__)]
+    try:
+        subprocess.Popen(target, shell=False, close_fds=True)   # nosec B603
+    except OSError:
+        pass    # 拉不起来不算崩：统计窗口会显示"守护进程未运行"提示（R8 由 UI 呈现）
 
 
 def main(argv: list) -> int:

@@ -55,7 +55,9 @@ class _SHFILEOPSTRUCTW(ctypes.Structure):
 
 
 def recycle(path: Path) -> bool:
-    """单个路径送回收站（可恢复）。个人数据一律回收站，不走永久删除。"""
+    """单个路径送回收站（可恢复）。个人数据一律回收站，不走永久删除。
+    实测 rc 可能非 0 而删除已生效 → 以"文件消失"为最终事实（R8：不许把
+    成功报成失败吓用户，也不许把失败报成成功）。"""
     op = _SHFILEOPSTRUCTW()
     op.hwnd = None
     op.wFunc = FO_DELETE
@@ -63,7 +65,7 @@ def recycle(path: Path) -> bool:
     op.pTo = None
     op.fFlags = FOF_ALLOWUNDO | FOF_NOCONFIRMATION | FOF_SILENT
     rc = ctypes.windll.shell32.SHFileOperationW(ctypes.byref(op))
-    return rc == 0 and not op.fAnyOperationsAborted
+    return (rc == 0 and not op.fAnyOperationsAborted) or not path.exists()
 
 
 def desktop_dir() -> Path:

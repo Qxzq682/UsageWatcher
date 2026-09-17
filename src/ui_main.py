@@ -318,7 +318,7 @@ class MainWindow(QMainWindow):
         self.tabs = QTabWidget()
         self.tabs.addTab(stats_tab, "统计")
         self.tabs.addTab(ui_scope.ScopePage(self.store), "监测范围")
-        self.tabs.addTab(ui_scope.PrivacyPage(self.store), "隐私与数据")
+        self.tabs.addTab(ui_scope.PrivacyPage(self.store), "设置")
 
         central = QWidget()
         layout = QVBoxLayout(central)
@@ -367,7 +367,8 @@ class MainWindow(QMainWindow):
             return
         running = bool(self.daemon_alive()) if self.daemon_alive else True
         if not running:
-            text = "守护进程未运行 —— 请双击「启动.bat」开始统计。"
+            text = ("守护进程未运行（打开窗口时已尝试自动拉起）—— 若长时间没有变化，"
+                    "请双击「启动.bat」。")
         elif config.load().get("paused"):
             # 暂停时永远不会有新数据，不能再说"数据正在积累"误导人（BUG-30）
             text = "监测已暂停 —— 右键托盘图标选择「继续统计」后才会积累新数据。"
