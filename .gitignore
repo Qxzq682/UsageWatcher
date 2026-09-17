@@ -39,3 +39,7 @@ _err.txt
 _out.txt
 build*/
 dist*/
+
+# v0.3 发行流水线产物（zip 由 release.py 生成，不入库）
+release/
+assets/_preview_*.png

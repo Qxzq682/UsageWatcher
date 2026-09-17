@@ -55,21 +55,25 @@ def check_static() -> bool:
     return not hits
 
 
-def find_daemon_pid(explicit: int) -> int:
+def find_daemon_pids(explicit: int) -> list:
+    """返回所有疑似守护进程的 PID。venv 启动器壳与真解释器的 cmdline 字符串
+    完全相同、无法可靠区分——干脆全查：壳是转发器必然零网络，但真身也必须
+    被覆盖，否则本项检查等于只查了个空壳（实测踩过：查到壳、漏了真身）。"""
     if explicit:
-        return explicit
+        return [explicit]
     import psutil
+    pids = []
     for proc in psutil.process_iter(["pid", "cmdline"]):
         cmdline = proc.info.get("cmdline") or []
         if any("app.py" in str(part) for part in cmdline) and "--gui" not in cmdline:
-            return proc.info["pid"]
-    return 0
+            pids.append(proc.info["pid"])
+    return pids
 
 
 def check_network_runtime(explicit_pid: int) -> bool:
     say("[2] 运行期：本进程有没有监听端口或建立连接")
-    pid = find_daemon_pid(explicit_pid)
-    if not pid:
+    pids = find_daemon_pids(explicit_pid)
+    if not pids:
         say("    [!] 没找到正在运行的守护进程 → 本次跳过")
         say("        先正常运行程序，再重跑本项即可验证。")
         say("    结果：跳过（不是通过，也不是不通过）")
@@ -80,13 +84,18 @@ def check_network_runtime(explicit_pid: int) -> bool:
     except OSError as exc:
         say("    [!] 无法运行 netstat：%s" % exc)
         return None
-    marker = " %d" % pid
-    lines = [line.strip() for line in text.splitlines() if marker in line and str(pid) in line.split()[-1:]]
-    say("    检查 PID %d 的网络条目" % pid)
-    for line in lines:
-        say("      [!] " + line)
-    say("    结果：%s" % ("通过（无监听、无连接）" if not lines else "不通过"))
-    return not lines
+    bad = []
+    for pid in pids:
+        marker = " %d" % pid
+        lines = [line.strip() for line in text.splitlines()
+                 if marker in line and str(pid) in line.split()[-1:]]
+        say("    检查 PID %d 的网络条目" % pid)
+        for line in lines:
+            say("      [!] " + line)
+        bad.extend(lines)
+    say("    （共查 %d 个进程：venv 启动器壳与真解释器 cmdline 相同，一并覆盖）" % len(pids))
+    say("    结果：%s" % ("通过（无监听、无连接）" if not bad else "不通过"))
+    return not bad
 
 
 def check_dependencies() -> bool:

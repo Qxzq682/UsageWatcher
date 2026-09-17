@@ -60,7 +60,7 @@ exe = EXE(
     strip=False,
     upx=False,          # UPX 压缩会显著提高杀软误报率，刻意不用
     console=False,      # 托盘常驻程序，无控制台；app.py 已兜底 stdout/stderr 为 None 的情况
-    icon=None,          # TODO：补图标（需 .ico 素材）
+    icon='assets\\app_icon.ico',   # v0.2.1：exe 文件图标（AI 生成 + tools/_make_ico.py 加工）
 )
 
 coll = COLLECT(
