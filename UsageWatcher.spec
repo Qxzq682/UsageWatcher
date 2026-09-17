@@ -27,7 +27,7 @@ exe = EXE(
     debug=False,
     strip=False,
     upx=False,          # D1 阶段再评估压缩
-    console=True,       # 诊断期先开；定位后改回 False
+    console=False,      # 托盘常驻程序，无控制台；app.py 已兜底 stdout/stderr 为 None 的情况
     icon=None,          # TODO(D1)：补图标
 )
 

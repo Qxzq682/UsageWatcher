@@ -33,3 +33,9 @@ Thumbs.db
 *.tmp
 *.bak
 ~$*
+
+# v0.2 打包（B1）
+build2/
+dist2/
+_pkg_smoke_env*/
+_diag.txt

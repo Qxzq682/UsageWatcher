@@ -14,6 +14,14 @@ import time
 
 sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
 
+# 打包为无控制台 exe 后 sys.stdout/stderr 是 None，任何 print 都会抛
+# AttributeError（PyInstaller 会弹 fatal 对话框挂住进程，且 Hidden 模式下
+# 谁也看不见）—— 兜底指向 devnull，print 变成无害丢弃（v0.2 B1 实测坑）
+if sys.stdout is None:
+    sys.stdout = open(os.devnull, "w", encoding="utf-8")
+if sys.stderr is None:
+    sys.stderr = open(os.devnull, "w", encoding="utf-8")
+
 import apps      # noqa: E402
 import audio     # noqa: E402
 import collect   # noqa: E402
