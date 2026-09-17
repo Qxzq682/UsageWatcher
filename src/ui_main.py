@@ -14,12 +14,12 @@ import os
 import sys
 from datetime import date, timedelta
 
-from PySide6.QtCore import QAbstractTableModel, QModelIndex, QRectF, Qt, QTimer
+from PySide6.QtCore import QAbstractTableModel, QFileInfo, QModelIndex, QRectF, Qt, QTimer
 from PySide6.QtGui import QColor, QFont, QPainter, QPen
 from PySide6.QtWidgets import (
-    QAbstractItemView, QComboBox, QFileDialog, QHBoxLayout, QHeaderView, QLabel,
-    QMainWindow, QMessageBox, QPushButton, QTableView, QTabWidget, QVBoxLayout,
-    QWidget,
+    QAbstractItemView, QComboBox, QFileDialog, QFileIconProvider, QHBoxLayout,
+    QHeaderView, QLabel, QMainWindow, QMessageBox, QPushButton, QTableView,
+    QTabWidget, QVBoxLayout, QWidget,
 )
 
 import config
@@ -87,11 +87,12 @@ def period_range(period: str) -> tuple:
 # ---------------------------------------------------------------- 排行表
 
 class RankModel(QAbstractTableModel):
-    HEADERS = ("应用", "前台", "后台活跃", "活跃总时长", "前台占比")
+    HEADERS = ("应用", "前台", "后台活跃", "活跃总时长(去重)", "前台占比")
 
     def __init__(self) -> None:
         super().__init__()
         self.rows: list = []
+        self._fip, self._icons = QFileIconProvider(), {}   # 本机 shell 图标（零联网）+ 缓存
 
     def set_rows(self, rows: list) -> None:
         self.beginResetModel()
@@ -105,9 +106,11 @@ class RankModel(QAbstractTableModel):
         return len(self.HEADERS)
 
     def headerData(self, section, orientation, _role=Qt.DisplayRole):
-        if orientation == Qt.Horizontal and _role == Qt.DisplayRole:
-            return self.HEADERS[section]
-        return None
+        if orientation != Qt.Horizontal:
+            return None
+        if _role == Qt.ToolTipRole:
+            return "活跃总时长=前台∪后台去重；多进程应用前后台会重叠，故小于相加"
+        return self.HEADERS[section] if _role == Qt.DisplayRole else None
 
     def data(self, index, role=Qt.DisplayRole):
         if not index.isValid():
@@ -124,6 +127,11 @@ class RankModel(QAbstractTableModel):
             if column == 3:
                 return fmt_duration(row["total_ms"])
             return "%.0f%%" % (row["fg_ratio"] * 100)
+        if role == Qt.DecorationRole and column == 0 and row["exe_path"]:
+            key = row["exe_path"]
+            if key not in self._icons:
+                self._icons[key] = self._fip.icon(QFileInfo(key))
+            return self._icons[key]
         if role == Qt.ToolTipRole and column == 0:
             return "%s\n%s" % (row["display_name"], row["exe_path"] or row["app_key"])
         if role == Qt.TextAlignmentRole and column > 0:
@@ -281,7 +289,8 @@ class MainWindow(QMainWindow):
     def _build_tabs_and_layout(self, top: QHBoxLayout) -> None:
         stats_tab = QWidget()
         stats_layout = QVBoxLayout(stats_tab)
-        stats_layout.addWidget(QLabel("各应用前台 / 后台活跃时长（蓝=前台，灰=后台活跃）"))
+        stats_layout.addWidget(QLabel("各应用前/后台时长（蓝=前台，灰=后台活跃）。"
+                                      "活跃总时长=前后台并集去重，多进程应用前后台重叠，不等于相加"))
         stats_layout.addWidget(self.bars)
         stats_layout.addWidget(self.table, 1)
         self.daily_title = QLabel("每日总时长")
