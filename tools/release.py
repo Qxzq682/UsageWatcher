@@ -104,6 +104,14 @@ def restore_source_daemon() -> None:
     subprocess.Popen([str(pythonw), str(ROOT / "src" / "app.py")], cwd=str(ROOT),
                      creationflags=subprocess.CREATE_NO_WINDOW)
     time.sleep(3)
+    # R8：恢复结果必须可见。注意：若本脚本跑在受限执行环境（如 WorkBuddy
+    # 沙箱）里，进程树会随任务结束被收割——这里查活着也没用，只能靠
+    # 沙箱外跑（用户双击 构建发行包.bat）才可靠。如实打印当下状态即可。
+    import winutil
+    alive = winutil.mutex_alive("Global\\UsageWatcher_SingleInstance_"
+                                + (winutil.current_user_sid() or "unknown"))
+    print("   源码守护已恢复: %s" % ("是" if alive else
+          "否 —— 请双击 启动.bat 手动恢复"))
 
 
 def make_packages(dist: Path, old_dist: Path | None) -> list:

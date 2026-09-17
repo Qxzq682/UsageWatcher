@@ -25,13 +25,12 @@ if not defined PYEXE for %%P in (python.exe) do set "PYEXE=%%~$PATH:P"
 if defined PYEXE set "PYWEXE=%PYEXE:python.exe=pythonw.exe%"
 if not exist "%PYWEXE%" set "PYWEXE=%PYEXE%"
 
-rem —— venv 的 Scripts\pythonw.exe 是启动器壳：拉起真解释器后自己常驻不退出，
-rem 白占 ~5MB 内存，任务管理器里会出现两个 pythonw（BUG-29）。
-rem 用 sys.base_prefix 找到真解释器目录（venv 时是 versions\<ver>\），优先用它。
-if defined PYWEXE if exist "%PYWEXE%" (
-    for /f "delims=" %%B in ('"%PYEXE%" -c "import sys;print(sys.base_prefix)" 2^>nul') do (
-        if exist "%%B\pythonw.exe" set "PYWEXE=%%B\pythonw.exe"
-    )
-)
+rem —— BUG-29 曾尝试改用真解释器（versions 目录下的 pythonw.exe）省掉壳的
+rem ~5MB，实测作废（09-18）：真解释器不加载 venv 的 site-packages，连 psutil
+rem 都 ModuleNotFoundError；用 PYTHONPATH 补也不行——PYTHONPATH 目录不是
+rem site 目录，.pth 不执行，pywin32（win32api）照挂。pythonw 静默无窗，表现
+rem 为启动.bat 双击后毫无反应。故 PYWEXE 固定用 venv 壳：壳拉起真身时以
+rem __PYVENV_LAUNCHER__ 让真身按 venv 解析依赖，链路完整、实测运行多日。
+rem 代价：任务管理器多一个 ~5MB 的 pythonw（壳），可接受。
 
 exit /b 0
