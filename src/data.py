@@ -331,10 +331,13 @@ class Store:
     # ------------------------------------------------------------ 维护
 
     def maintenance(self) -> None:
-        """清理过期事件、name:pid 垃圾行 + 按需 VACUUM。启动时与每 24h 调用一次。"""
+        """清理过期事件/片段、name:pid 垃圾行 + 按需 VACUUM。启动时与每 24h 调用一次。"""
         cutoff = int((time.time() - config.EVENT_KEEP_DAYS * 86400) * 1000)
+        seg_cutoff = time.strftime(
+            "%Y-%m-%d", time.localtime(time.time() - config.SEGMENT_KEEP_DAYS * 86400))
         try:
             self.conn.execute("DELETE FROM event WHERE ts_ms < ?", (cutoff,))
+            self.conn.execute("DELETE FROM segment WHERE day < ?", (seg_cutoff,))
             # 历史遗留的 name:pid-N 垃圾行（BUG-28）：从未采集、无 segment 引用，删除安全
             self.conn.execute("DELETE FROM app_capability WHERE app_key LIKE 'name:pid-%'")
             self.conn.execute(

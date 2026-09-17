@@ -67,7 +67,7 @@ netsh advfirewall firewall add rule name="UsageWatcher-BlockOut" dir=out program
 
 1. 打开统计窗口 → **隐私与数据** 页 → 「清空全部数据」
 2. 直接删掉整个目录 `%APPDATA%\UsageWatcher\`
-3. 卸载说明见 `说明文档.md`（本程序是绿色程序，删目录即可）
+3. 卸载：双击 `卸载.bat`（停程序 → 删自启 → 删快捷方式 → 删数据，删除项全部送回收站可恢复；本程序是绿色程序，程序文件所在目录不需要时直接删除即可）
 
 ---
 

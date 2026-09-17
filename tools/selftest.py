@@ -682,6 +682,27 @@ def test_autostart() -> None:
           "ok=%s enabled=%s" % (ok2, winutil.autostart_enabled()))
 
 
+def test_segment_retention() -> None:
+    print("\n[29] segment 保留策略：超龄片段在 maintenance 清理（v0.2 E1）")
+    store = _temp_store()
+    try:
+        app_id = store.upsert_app(apps.AppInfo(
+            r"c:\a\old.exe", r"c:\a\old.exe", "old.exe", "OLD", "", ""))
+        old_ms = int((time.time() - (config.SEGMENT_KEEP_DAYS + 5) * 86400) * 1000)
+        fresh_ms = int(time.time() * 1000)
+        rows = [(app_id, 1, kind, t0, t0 + 60_000, 60_000, track.day_of(t0), 0)
+                for kind, t0 in (("fg", old_ms), ("fg", fresh_ms))]
+        store.conn.executemany(
+            "INSERT INTO segment (app_id, pid, kind, start_ms, end_ms, dur_ms, day, flags)"
+            " VALUES (?, ?, ?, ?, ?, ?, ?, ?)", rows)
+        store.conn.commit()
+        store.maintenance()
+        n = store.conn.execute("SELECT COUNT(*) c FROM segment").fetchone()["c"]
+        check("超龄片段被清理、新鲜片段保留", n == 1, "剩 %d 行" % n)
+    finally:
+        store.close()
+
+
 def main() -> int:
     print("=" * 68)
     print(" 自测：纯逻辑回归 + 安全红线")
@@ -714,6 +735,7 @@ def main() -> int:
     test_idle_gate_audio_exempt()
     test_period_ranges()
     test_autostart()
+    test_segment_retention()
 
     print("\n" + "=" * 68)
     print("通过 %d 项，失败 %d 项" % (PASSED, len(FAILED)))

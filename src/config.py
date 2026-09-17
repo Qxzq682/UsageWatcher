@@ -87,6 +87,7 @@ FLAG_GUESS = 8    # 边界靠轮询推测（非事件驱动）
 FLAG_IDLE = 16    # 无输入空闲（AFK）被截断
 
 EVENT_KEEP_DAYS = 30   # event 表保留天数
+SEGMENT_KEEP_DAYS = 365  # segment 表保留天数：超龄片段在维护时清理，防止库无限膨胀
 VACUUM_MIN_INTERVAL_S = 7 * 86400   # 两次 VACUUM 的最小间隔
 
 # ---------------------------------------------------------------- 后台维护
