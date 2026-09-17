@@ -11,6 +11,8 @@ from __future__ import annotations
 
 import ctypes
 import ctypes.wintypes as w
+import os
+import sys
 from typing import Optional
 
 import win32api
@@ -324,3 +326,49 @@ def mutex_alive(name: str) -> bool:
         _kernel32.CloseHandle(handle)
         return True
     return ctypes.get_last_error() != ERROR_FILE_NOT_FOUND
+
+
+# ---------------------------------------------------------------- 开机自启（v0.2 B2）
+# R6 红线的落点：只写 HKCU 当前用户的 Run 项、默认不写、只在用户于统计窗口
+# 主动勾选时写入、取消勾选即删除。打包 exe 与源码运行自适应两种命令。
+
+AUTOSTART_RUN_KEY = r"Software\Microsoft\Windows\CurrentVersion\Run"
+AUTOSTART_NAME = "UsageWatcher"
+
+
+def autostart_command() -> str:
+    """自启命令自适应：打包 exe 用自身路径；源码运行用 pythonw + app.py。"""
+    if getattr(sys, "frozen", False):
+        return '"%s"' % sys.executable
+    base = os.path.dirname(os.path.abspath(__file__))
+    pythonw = sys.executable.replace("python.exe", "pythonw.exe")
+    return '"%s" "%s"' % (pythonw, os.path.join(base, "app.py"))
+
+
+def autostart_enabled() -> bool:
+    """查询当前用户是否已设置开机自启（只读 HKCU，不碰其它任何键）。"""
+    import winreg
+    try:
+        with winreg.OpenKey(winreg.HKEY_CURRENT_USER, AUTOSTART_RUN_KEY) as key:
+            value, _kind = winreg.QueryValueEx(key, AUTOSTART_NAME)
+            return bool(value)
+    except OSError:
+        return False
+
+
+def set_autostart(enabled: bool) -> bool:
+    """写/删 HKCU Run 项。失败返回 False（调用方必须把 UI 状态恢复并提示）。"""
+    import winreg
+    try:
+        if enabled:
+            with winreg.CreateKeyEx(winreg.HKEY_CURRENT_USER, AUTOSTART_RUN_KEY,
+                                    0, winreg.KEY_SET_VALUE) as key:
+                winreg.SetValueEx(key, AUTOSTART_NAME, 0, winreg.REG_SZ,
+                                  autostart_command())
+        else:
+            with winreg.OpenKey(winreg.HKEY_CURRENT_USER, AUTOSTART_RUN_KEY,
+                                0, winreg.KEY_SET_VALUE) as key:
+                winreg.DeleteValue(key, AUTOSTART_NAME)
+        return True
+    except OSError:
+        return False

@@ -12,12 +12,13 @@ from __future__ import annotations
 from PySide6.QtCore import Qt
 from PySide6.QtGui import QColor, QFont
 from PySide6.QtWidgets import (
-    QAbstractItemView, QComboBox, QHBoxLayout, QHeaderView, QLabel, QLineEdit,
-    QMessageBox, QPushButton, QTableWidget, QTableWidgetItem, QTextBrowser,
-    QVBoxLayout, QWidget,
+    QAbstractItemView, QCheckBox, QComboBox, QHBoxLayout, QHeaderView, QLabel,
+    QLineEdit, QMessageBox, QPushButton, QTableWidget, QTableWidgetItem,
+    QTextBrowser, QVBoxLayout, QWidget,
 )
 
 import config
+import winutil
 
 LEVEL_TEXT = {"yes": "可监测", "partial": "有限监测", "no": "不可监测"}
 LEVEL_MARK = {"yes": "[可监测]", "partial": "[有限监测]", "no": "[不可监测] 锁定"}
@@ -225,6 +226,12 @@ class PrivacyPage(QWidget):
         open_dir = QPushButton("打开数据目录")
         open_dir.clicked.connect(self._open_data_dir)
 
+        # 开机自启（v0.2 B2）：默认不写（R6），勾选才写 HKCU 自己的 Run 项
+        self.autostart = QCheckBox(
+            "开机自动启动监测（仅写入当前用户的注册表 Run 项，取消勾选即删除）")
+        self.autostart.setChecked(winutil.autostart_enabled())
+        self.autostart.toggled.connect(self._set_autostart)
+
         buttons = QHBoxLayout()
         buttons.addWidget(clear)
         buttons.addWidget(open_dir)
@@ -232,7 +239,18 @@ class PrivacyPage(QWidget):
 
         layout = QVBoxLayout(self)
         layout.addWidget(view, 1)
+        layout.addWidget(self.autostart)
         layout.addLayout(buttons)
+
+    def _set_autostart(self, on: bool) -> None:
+        if winutil.set_autostart(on):
+            return
+        # 失败必须回滚 UI 并可见（R8），不许让勾选状态与注册表事实不符
+        self.autostart.blockSignals(True)
+        self.autostart.setChecked(winutil.autostart_enabled())
+        self.autostart.blockSignals(False)
+        QMessageBox.warning(self, "设置失败",
+                            "写入注册表失败（可能被安全软件拦截），已恢复原状态。")
 
     def _open_data_dir(self) -> None:
         from PySide6.QtCore import QUrl

@@ -664,6 +664,24 @@ def test_period_ranges() -> None:
     check("今日不受影响", period_range("今日") == (_d.today().isoformat(),) * 2)
 
 
+def test_autostart() -> None:
+    print("\n[28] 开机自启：R6 红线（HKCU Run、默认关、可还原）（v0.2 B2）")
+    cmd = winutil.autostart_command()
+    check("自启命令生成指向本程序（源码=pythonw+app.py / 打包=exe）",
+          "app.py" in cmd or "UsageWatcher" in cmd, cmd)
+    before = winutil.autostart_enabled()
+    if before:
+        check("用户已勾选自启，跳过写删测试（不碰用户设置）", True)
+        return
+    check("默认不写自启（R6）", before is False, str(before))
+    ok = winutil.set_autostart(True)
+    check("勾选写入 HKCU Run 成功且可查", ok and winutil.autostart_enabled(),
+          "ok=%s enabled=%s" % (ok, winutil.autostart_enabled()))
+    ok2 = winutil.set_autostart(False)
+    check("取消勾选删除成功（还原初始态）", ok2 and not winutil.autostart_enabled(),
+          "ok=%s enabled=%s" % (ok2, winutil.autostart_enabled()))
+
+
 def main() -> int:
     print("=" * 68)
     print(" 自测：纯逻辑回归 + 安全红线")
@@ -695,6 +713,7 @@ def main() -> int:
     test_audio_gate()
     test_idle_gate_audio_exempt()
     test_period_ranges()
+    test_autostart()
 
     print("\n" + "=" * 68)
     print("通过 %d 项，失败 %d 项" % (PASSED, len(FAILED)))
