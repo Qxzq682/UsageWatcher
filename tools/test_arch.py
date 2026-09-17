@@ -14,14 +14,15 @@ from pathlib import Path
 
 SRC = Path(__file__).resolve().parent.parent / "src"
 
-MAX_FILE_LINES = 400
+MAX_FILE_LINES = 450    # v0.2 开工时经作者同意 400→450（图标/口径解释/日期切换塞压 ui_main）
 MAX_FUNC_LINES = 60      # 防屎山核心配额，不为新功能放水
 MAX_FILES = 13           # 12 个现有文件 + 1 个 v0.2 悬浮窗预留位
 # 规模上限用「纯代码行」衡量：文档串 / 注释 / 空行不计入。
 # 理由：这个上限的意图是限制**实现规模**，而不是惩罚写注释。
 # 早先用总行数衡量时，2872 行里有 895 行是文档与空行，把注释算成"超标"是量错了对象。
 # v0.1 二轮复检修复时经作者同意 2200→2400（悬浮窗/留存/自启等 v0.2 需求 + 复检 BUG-26~31）
-MAX_CODE_LINES = 2400
+# v0.2 开工时经作者同意 2400→2600（音频检测/日期切换/趋势图）
+MAX_CODE_LINES = 2600
 # 阈值必须只在 config.py 定义一次，其它模块只许用 config.XXX 访问
 UI_FORBIDDEN = ("sqlite3", "select ", "insert ", "update ", "delete from",
                 ".execute(", ".executemany(", ".executescript(")
