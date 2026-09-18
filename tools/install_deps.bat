@@ -37,8 +37,30 @@ if errorlevel 1 (
 )
 
 echo.
+echo === 正在安装 pycaw==20251023 ===
+"%PY%" -m pip install --disable-pip-version-check "pycaw==20251023"
+if errorlevel 1 (
+    echo.
+    echo [x] 安装失败。可能是网络问题，可尝试加国内镜像重跑：
+    echo     "%PY%" -m pip install -i https://pypi.tuna.tsinghua.edu.cn/simple "pycaw==20251023"
+    pause
+    exit /b 1
+)
+
+echo.
+echo === 正在安装 comtypes==1.4.16 ===
+"%PY%" -m pip install --disable-pip-version-check "comtypes==1.4.16"
+if errorlevel 1 (
+    echo.
+    echo [x] 安装失败。可能是网络问题，可尝试加国内镜像重跑：
+    echo     "%PY%" -m pip install -i https://pypi.tuna.tsinghua.edu.cn/simple "comtypes==1.4.16"
+    pause
+    exit /b 1
+)
+
+echo.
 echo === 验证 ===
-"%PY%" -c "import psutil, sys; print('psutil', psutil.__version__, 'OK on', sys.version.split()[0])"
+"%PY%" -c "import psutil, comtypes, pycaw, sys; print('psutil', psutil.__version__, '| comtypes', comtypes.__version__, '| pycaw OK |', sys.version.split()[0])"
 
 echo.
 echo [√] 依赖安装完成。接下来双击“启动.bat”即可开始监测。

@@ -39,6 +39,8 @@
 | psutil | 7.2.2 | BSD-3-Clause | 保留版权声明与免责声明 |
 | pywin32 | 312 | PSF（Python Software Foundation License） | 保留版权声明 |
 | shiboken6 | 6.11.1 | 同 PySide6（LGPL-3.0 / GPL / 商业） | 同第 1 节 |
+| pycaw | 20251023 | MIT | 保留版权声明与许可文本 |
+| comtypes | 1.4.16 | MIT | 保留版权声明与许可文本 |
 
 ### 开发期（不随程序分发）
 
@@ -58,4 +60,6 @@
 - GPL-3.0：https://www.gnu.org/licenses/gpl-3.0.txt
 - psutil：https://github.com/giampaolo/psutil/blob/master/LICENSE
 - pywin32：https://github.com/mhammond/pywin32/blob/main/LICENSE.txt
+- pycaw：https://github.com/AndreMiras/pycaw/blob/develop/LICENSE.txt
+- comtypes：https://github.com/enthought/comtypes/blob/main/LICENSE.txt
 - PyInstaller：https://github.com/pyinstaller/pyinstaller/blob/develop/COPYING.txt

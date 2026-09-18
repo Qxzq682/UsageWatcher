@@ -44,12 +44,15 @@ class Store:
         raw = sqlite3.connect(str(self.path), timeout=5.0, check_same_thread=False)
         raw.row_factory = sqlite3.Row
         self.conn = _LockedConnection(raw, self._lock)
-        self._apply_pragmas()
-        self.conn.executescript(schema.SCHEMA_SQL)
-        self.conn.commit()
+        # 以下三个属性必须早于 _apply_pragmas()：它的 except 分支会
+        # self.error_count += 1（BUG-33）——初始化放后面的话，pragma 一失败
+        # 错误处理自己先 AttributeError，连"降级并报告"的机会都没有（R8）。
         self._app_ids: dict = {}
         self._app_seen_flush: dict = {}   # app_key -> 上次回写 last_seen_ms 的时刻
         self.error_count = 0     # R8：写库失败必须可见
+        self._apply_pragmas()
+        self.conn.executescript(schema.SCHEMA_SQL)
+        self.conn.commit()
 
     def _apply_pragmas(self) -> None:
         for pragma in ("PRAGMA journal_mode=WAL", "PRAGMA synchronous=NORMAL",

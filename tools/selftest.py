@@ -741,6 +741,83 @@ def test_overlay_prefs() -> None:
           "%s / %s" % (ui_overlay._fmt(0), ui_overlay._fmt(90 * 60_000)))
     check("悬浮窗互斥体名含 Local 前缀（单会话不跨用户）",
           ui_overlay._MUTEX.startswith("Local\\"))
+    cfg0 = config.load()
+    try:
+        config.save({**cfg0, "overlay_x": 123, "overlay_y": 456})
+        back = config.load()
+        check("悬浮窗位置 save/load 往返一致（BUG-34：键不在 DEFAULTS 会被静默丢弃）",
+              back.get("overlay_x") == 123 and back.get("overlay_y") == 456,
+              str({k: back.get(k) for k in ("overlay_x", "overlay_y")}))
+    finally:
+        config.save(cfg0)   # 还原用户原配置，不留下测试值
+
+
+def test_store_resilience() -> None:
+    print("\n[32] Store 韧性：pragma 全炸也不能崩构造（BUG-33）")
+    import shutil
+    import sqlite3 as sq
+
+    folder = Path(tempfile.mkdtemp(prefix="uw_selftest_"))
+    real_getattr = data._LockedConnection.__getattr__
+
+    def broken(self, name):
+        if name == "execute":
+            def boom(*args, **kwargs):
+                raise sq.Error("simulated pragma failure")
+            return boom
+        return real_getattr(self, name)
+
+    data._LockedConnection.__getattr__ = broken
+    st = None
+    try:
+        st = data.Store(folder / "bug33.db")
+        check("pragma 失败时 Store 仍能构造（错误处理不许自己崩，R8）", True)
+        check("失败计数可见（error_count > 0）", st.error_count > 0,
+              str(getattr(st, "error_count", None)))
+    except Exception as exc:   # 修复前：AttributeError（error_count 未初始化）
+        check("pragma 失败时 Store 仍能构造（错误处理不许自己崩，R8）", False, repr(exc))
+        check("失败计数可见（error_count > 0）", False, "未走到")
+    finally:
+        data._LockedConnection.__getattr__ = real_getattr
+        if st is not None:
+            st.close()
+        shutil.rmtree(folder, ignore_errors=True)
+
+
+def test_deps_declared() -> None:
+    print("\n[33] 依赖声明：requirements 覆盖实际使用（GAP-1）")
+    import ast
+    import re
+
+    req = (ROOT / "requirements.txt").read_text(encoding="utf-8")
+    pins = {m.group(1): m.group(0) for m in
+            (re.match(r"^([A-Za-z0-9_.-]+)==", ln) for ln in req.splitlines())
+            if m}
+    need = ("psutil", "pywin32", "PySide6-Essentials", "shiboken6",
+            "pycaw", "comtypes")
+    check("requirements 六件套全部 pin 精确版本",
+          all(n in pins for n in need), str(sorted(pins)))
+
+    def pkg_of(name: str) -> str:
+        if name.startswith("win32") or name in ("pythoncom", "pywintypes"):
+            return "pywin32"
+        return {"PySide6": "PySide6-Essentials", "shiboken6": "shiboken6",
+                "psutil": "psutil", "comtypes": "comtypes",
+                "pycaw": "pycaw"}.get(name, "")
+
+    local = {p.stem for p in (ROOT / "src").glob("*.py")}
+    third: set = set()
+    for f in (ROOT / "src").glob("*.py"):
+        tree = ast.parse(f.read_text(encoding="utf-8"))
+        for node in tree.body:
+            if isinstance(node, ast.Import):
+                third.update(a.name.split(".")[0] for a in node.names)
+            elif isinstance(node, ast.ImportFrom) and node.module:
+                third.add(node.module.split(".")[0])
+    third -= local | set(sys.stdlib_module_names)
+    unknown = sorted(n for n in third if pkg_of(n) not in pins)
+    check("src 顶层第三方 import 全部在 requirements 声明内（防静默加依赖）",
+          not unknown, str(unknown))
 
 
 def main() -> int:
@@ -778,6 +855,8 @@ def main() -> int:
     test_segment_retention()
     test_i18n_tables()
     test_overlay_prefs()
+    test_store_resilience()
+    test_deps_declared()
 
     print("\n" + "=" * 68)
     print("通过 %d 项，失败 %d 项" % (PASSED, len(FAILED)))
