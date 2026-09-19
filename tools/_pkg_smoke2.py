@@ -38,6 +38,42 @@ for _ in range(12):
     time.sleep(1)
 
 print("== 2. exe 隔离跑 12 秒 ==")
+
+
+def _nudge_input() -> None:
+    """注入一次 1 像素鼠标移动（真实输入事件），解除系统空闲状态。
+
+    BUG-32 空闲截断（无输入 5 分钟闩上、轮询不产段）会让"深夜/无人时
+    发版"的冒烟必挂 seg=0——冒烟前提不该是"人恰好坐在电脑前"。
+    SendInput 才算真实输入（SetCursorPos 不更新 GetLastInputInfo）。
+    """
+    import ctypes
+
+    PUL = ctypes.POINTER(ctypes.c_ulong)
+
+    class _KI(ctypes.Structure):
+        _fields_ = [("wVk", ctypes.c_ulong), ("wScan", ctypes.c_ulong),
+                    ("dwFlags", ctypes.c_ulong), ("time", ctypes.c_ulong),
+                    ("dwExtraInfo", PUL)]
+
+    class _MI(ctypes.Structure):
+        _fields_ = [("dx", ctypes.c_long), ("dy", ctypes.c_long),
+                    ("mouseData", ctypes.c_ulong), ("dwFlags", ctypes.c_ulong),
+                    ("time", ctypes.c_ulong), ("dwExtraInfo", PUL)]
+
+    class _INPUT(ctypes.Structure):
+        class _U(ctypes.Union):
+            _fields_ = [("ki", _KI), ("mi", _MI)]
+
+        _anonymous_ = ("u",)
+        _fields_ = [("type", ctypes.c_ulong), ("u", _U)]
+
+    inp = _INPUT(type=0)                      # INPUT_MOUSE
+    inp.mi = _MI(1, 1, 0, 0x0001, 0, None)    # MOUSEEVENTF_MOVE，位移 1 像素
+    ctypes.windll.user32.SendInput(1, ctypes.byref(inp), ctypes.sizeof(_INPUT))
+
+
+_nudge_input()
 env = dict(os.environ, APPDATA=str(SANDBOX))
 proc = subprocess.Popen([str(EXE)], env=env, creationflags=subprocess.CREATE_NO_WINDOW)
 print("   pid =", proc.pid)
@@ -74,4 +110,7 @@ print("   守护进程回来了:", alive)
 
 passed = alive and n_app > 0 and n_seg > 0
 print("\n结果:", "通过" if passed else "失败", "(app=%d seg=%d alive=%s)" % (n_app, n_seg, alive))
+if alive and n_app > 0 and n_seg == 0:
+    print("   [!] 零片段但进程正常——若刚注入的鼠标移动未生效（空闲截断仍闩上），")
+    print("       请在电脑前活动后重跑；若反复出现则可能是采集回归，需排查。")
 sys.exit(0 if passed else 1)
