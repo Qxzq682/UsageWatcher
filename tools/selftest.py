@@ -820,6 +820,35 @@ def test_deps_declared() -> None:
           not unknown, str(unknown))
 
 
+def test_uninstall_redirect_guard() -> None:
+    print("\n[34] 卸载把关：数据目录重定向必须被识别（L3 复检加固）")
+    import shutil as sh
+
+    base = Path(tempfile.mkdtemp(prefix="uw_selftest_"))
+    target = base / "real_data"
+    link = base / "link_data"
+    target.mkdir()
+    try:
+        import _winapi
+        _winapi.CreateJunction(str(target), str(link))   # 普通用户可建，无需特权
+        sys.path.insert(0, str(ROOT / "tools"))
+        import uninstall
+        real = str(target.resolve())
+        check("目录交合点被识别且给出真实删除目标",
+              uninstall.redirect_target(link) == real,
+              str(uninstall.redirect_target(link)))
+        check("普通目录不误报", uninstall.redirect_target(target) is None)
+        check("不存在路径不误报", uninstall.redirect_target(base / "nope") is None)
+    except OSError as exc:
+        check("目录交合点被识别且给出真实删除目标", False, "CreateJunction 不可用: %r" % exc)
+        check("普通目录不误报", False, "未执行")
+        check("不存在路径不误报", False, "未执行")
+    finally:
+        if link.exists():
+            link.rmdir()      # 只移除交合点本身，绝不碰目标目录（unlink 不跟随）
+        sh.rmtree(base, ignore_errors=True)
+
+
 def main() -> int:
     print("=" * 68)
     print(" 自测：纯逻辑回归 + 安全红线")
@@ -857,6 +886,7 @@ def main() -> int:
     test_overlay_prefs()
     test_store_resilience()
     test_deps_declared()
+    test_uninstall_redirect_guard()
 
     print("\n" + "=" * 68)
     print("通过 %d 项，失败 %d 项" % (PASSED, len(FAILED)))

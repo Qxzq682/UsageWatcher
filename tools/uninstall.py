@@ -144,6 +144,23 @@ def confirm(text: str, assume_yes: bool) -> bool:
         return False
 
 
+def redirect_target(path: Path) -> str | None:
+    """数据目录若是符号链接/目录交合点，返回真实删除将命中的目标路径。
+
+    攻击模型（L3 复检 §1.3）：同用户权限的恶意程序可把 %APPDATA%\\UsageWatcher
+    换成交合点，让「卸载删数据」实际删到别处。把守在唯一有破坏性的动作
+    （卸载）的预览里：先明示真实目标再让用户确认（R8）。平时写库到重定向
+    目标无安全损失（仍是同用户权限），故 data_dir() 刻意不拒绝——在那儿
+    raise 会让守护静默起不来（pythonw 无窗），比风险本身更糟。
+    """
+    try:
+        if path.is_symlink() or path.is_junction():
+            return str(path.resolve())
+    except OSError:
+        pass      # nosec B110 —— 探测失败按普通目录处理；真删不动时另有占用报错兜底
+    return None
+
+
 def main() -> int:
     parser = argparse.ArgumentParser(description="UsageWatcher 卸载向导")
     parser.add_argument("--yes", action="store_true", help="跳过逐项确认")
@@ -165,6 +182,10 @@ def main() -> int:
           ("、".join(p.name for p in existing) or "未发现"))
     print("  4. 删除数据目录（送回收站，含全部历史记录）：")
     print("     %s（%.1f MB）" % (data_dir, dir_size_mb(data_dir)))
+    redirect = redirect_target(data_dir)
+    if redirect:
+        print("     ⚠ 该目录是符号链接/目录交合点，删除将命中其真实目标：")
+        print("       %s" % redirect)
     print("程序文件本身不会被删除；数据送回收站，后悔可还原。")
     print("=" * 62)
     if not confirm("确认开始卸载？", args.yes):

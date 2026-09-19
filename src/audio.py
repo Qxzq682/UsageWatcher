@@ -38,7 +38,7 @@ def ensure_init() -> None:
     try:
         comtypes.CoInitializeEx(comtypes.COINIT_MULTITHREADED)
     except OSError:
-        pass    # 已按其它模式初始化（comtypes import 时主线程 STA）—— 直接可用
+        pass    # nosec B110 —— 已按其它模式初始化（comtypes import 时主线程 STA），直接可用
     _tls.inited = True
 
 
