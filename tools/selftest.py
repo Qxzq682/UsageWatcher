@@ -741,6 +741,9 @@ def test_overlay_prefs() -> None:
           "%s / %s" % (ui_overlay._fmt(0), ui_overlay._fmt(90 * 60_000)))
     check("悬浮窗互斥体名含 Local 前缀（单会话不跨用户）",
           ui_overlay._MUTEX.startswith("Local\\"))
+    import app
+    check("GUI 唤起对不存在的窗口安静返回（BUG-35：最小化后双击无反应）",
+          app._revive_gui_window("不存在的标题XYZ") is None)
     cfg0 = config.load()
     try:
         config.save({**cfg0, "overlay_x": 123, "overlay_y": 456})

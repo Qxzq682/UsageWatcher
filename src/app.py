@@ -376,12 +376,31 @@ def _fmt_duration(ms: int) -> str:
     return "%dm" % m if m < 60 else "%dh%02dm" % (m // 60, m % 60)
 
 
+def _revive_gui_window(title: str | None = None) -> None:
+    """已有统计窗口（可能最小化/被遮挡）时恢复并置前；找不到就安静返回。
+
+    BUG-35：窗口最小化后双击快捷方式，GUI 单实例只静默退出、用户毫无反应。
+    句柄类 API 全部声明 argtypes（64 位截断红线）；找不到窗口是常态（无窗/标题
+    语言差异），安静返回即可。"""
+    user32 = ctypes.WinDLL("user32", use_last_error=True)
+    user32.FindWindowW.restype = ctypes.c_void_p
+    user32.FindWindowW.argtypes = [ctypes.c_wchar_p, ctypes.c_wchar_p]
+    hwnd = user32.FindWindowW(None, title or "%s v%s" % (config.APP_TITLE, config.APP_VERSION))
+    if hwnd:
+        user32.ShowWindow.argtypes = [ctypes.c_void_p, ctypes.c_int]
+        user32.SetForegroundWindow.argtypes = [ctypes.c_void_p]
+        user32.ShowWindow(hwnd, 9)          # SW_RESTORE：最小化先恢复
+        user32.SetForegroundWindow(hwnd)
+
+
 def run_gui(smoke: bool = False) -> int:
     """统计窗口（独立进程，关窗即退出）；延迟导入 PySide6，守护模式永不加载 Qt。"""
     import ui_main
     sid = _user_sid()
-    # 统计窗口自己的单实例：重复点「打开统计窗口」时第二个进程直接退（BUG-13）
+    # 统计窗口自己的单实例：重复点「打开统计窗口」时第二个进程直接退（BUG-13），
+    # 退出前把已有窗口唤起到前台（BUG-35：最小化时静默退出 = 用户双击无反应）
     if not _acquire_mutex("Local\\UsageWatcher_GUI_" + sid):
+        _revive_gui_window()
         return 0
     # 合并入口（v0.2 C2）：双击快捷方式 = 看统计；发现守护没跑就顺手拉起来，
     # "首次查看时便启动"，用户不用先跑 启动.bat 再开窗口两步走。
