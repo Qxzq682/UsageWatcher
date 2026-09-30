@@ -339,3 +339,23 @@ def set_autostart(enabled: bool) -> bool:
         return True
     except OSError:
         return False
+
+
+def revive_window(title: str) -> bool:
+    """按标题找窗口并恢复置前；找不到（无窗/标题语言差异）安静返回 False。
+
+    BUG-35：统计窗口最小化后再次双击快捷方式，GUI 单实例进程会静默退出、
+    用户毫无感知 —— 退出前先调用本函数把已有窗口唤回来。
+    句柄类 API 必须声明 argtypes/restype（64 位截断红线，本项目踩过 3 次）。
+    """
+    user32 = ctypes.WinDLL("user32", use_last_error=True)
+    user32.FindWindowW.restype = ctypes.c_void_p
+    user32.FindWindowW.argtypes = [ctypes.c_wchar_p, ctypes.c_wchar_p]
+    hwnd = user32.FindWindowW(None, title)
+    if not hwnd:
+        return False
+    user32.ShowWindow.argtypes = [ctypes.c_void_p, ctypes.c_int]
+    user32.SetForegroundWindow.argtypes = [ctypes.c_void_p]
+    user32.ShowWindow(hwnd, 9)          # SW_RESTORE：最小化先恢复
+    user32.SetForegroundWindow(hwnd)
+    return True

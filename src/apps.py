@@ -9,6 +9,7 @@ exe 路径、产品名、发布者都来自别人的文件元数据，一律按�
 from __future__ import annotations
 
 import os
+import re
 import time
 from dataclasses import dataclass
 from typing import Optional
@@ -114,6 +115,115 @@ _WINDOWS_PREFIXES = (
 
 def _looks_windows_owned(path_lower: str) -> bool:
     return any(path_lower.startswith(p) for p in _WINDOWS_PREFIXES)
+
+
+# ---------------------------------------------------------------- 归类归并（v0.4）
+
+# 通用结构目录名：爬根时跳过 —— 它们是工程结构，不是应用名。
+# 黑名单宁缺勿滥：漏一个只会"少归并"（无害），错一个可能"错归并"。
+_GENERIC_DIRS = {
+    "bin", "bin64", "bin32", "win64", "win32", "x64", "x86", "release", "debug",
+    "common", "runtime", "extracted", "plugins", "plugin", "thirdparty", "third_party",
+    "third-party", "binaries", "binary", "cef", "locale", "locales", "resources",
+    "resource", "static", "webcache", "cache", "data", "libs", "lib", "dll", "drivers",
+    "game", "games", "client", "server", "launcher", "update", "updates", "installer",
+    "install", "redist", "crashreporter", "crashes", "logs", "config", "settings",
+    "apps", "packages", "container", "files",
+    "application", "office6",   # 真库冒烟：EdgeWebView\Application、WPS office6
+    "content",                  # UE 引擎资源目录（selftest 补测暴露）
+}
+# 文件"存放地"而非"应用名"：出现在路径任一段就说明这条 exe 是被随手放的
+# （如 D:\下载\xxx.exe），向上爬没有证据意义 —— 真库冒烟实证：D:\下载 下
+# 两个无关安装包曾因此被误合。名单宁小勿滥，只收确证的存放目录。
+_STORAGE_DIRS = {
+    "下载", "downloads", "download", "文档", "documents", "桌面", "desktop",
+    "图片", "pictures", "视频", "videos", "音乐", "music", "安装包",
+    "新建文件夹", "new folder", "temp", "tmp",
+}
+_VERSION_RE = re.compile(r"^v?\d+([._-]\d+)*$")
+
+# 内置预设（先于爬根，命中即归并）。模式一律小写：
+#   ("path", 子串, 组名) = 路径含子串     ("exe", 基名, 组名) = exe 基名相等
+# 跨树家族（微信本体与内嵌浏览器不在同一目录树）只能靠预设；
+# 同树家族预设 + 爬根双保险。纯数据表，用户以后的"即席合并"（v0.5）走同一条路。
+_MERGE_PRESETS = (
+    ("path", "wuthering waves", "鸣潮"),
+    ("path", "delta force", "三角洲行动"),
+    ("path", "nvidia corporation", "NVIDIA"),
+    ("path", "tencent\\xwechat", "微信"),
+    ("exe", "weixin.exe", "微信"),
+    ("exe", "wechatappex.exe", "微信"),
+    ("exe", "wechat.exe", "微信"),
+)
+
+
+def _squash(name: str) -> str:
+    """目录名规范化比较：去空格/连字符/下划线 + 小写（DeltaForce == Delta Force）。"""
+    return name.lower().replace(" ", "").replace("-", "").replace("_", "")
+
+
+def crawl_root(exe_path: str) -> str:
+    """从 exe 路径向上爬，返回「应用根」路径（小写反斜杠串）；爬不出返回 ""。
+
+    跳过通用结构目录与纯版本号目录，停在第一个"像应用名"的目录；
+    根目录名与其父目录规范化同名时继续上浮（...\\Delta Force\\Delta Force\\DeltaForce
+    → Delta Force）。纯函数零 I/O（R3：路径是不可信输入，爬错的最坏结果是
+    "少归并"，不会把两个无关应用合成一个 —— 组只在多成员时才生效，见下）。
+    """
+    parts = [p for p in exe_path.lower().replace("/", "\\").split("\\") if p]
+    if len(parts) < 3:                       # 至少 盘符\目录\file.exe 才谈得上爬根
+        return ""
+    joined = "\\".join(parts)
+    if _looks_windows_owned(joined):
+        return ""    # Windows 自有路径（system32/systemapps/windowsapps）不爬根
+    if any(p.startswith(".") or p in _STORAGE_DIRS for p in parts[:-1]):
+        return ""    # 点开头目录 / 文件存放地：exe 是工具链或随手放的，无归并证据
+    k = len(parts) - 2                       # exe 的父目录
+    while k >= 1 and (parts[k] in _GENERIC_DIRS or _VERSION_RE.match(parts[k])
+                      or parts[k].isdigit()):
+        k -= 1
+    if k < 1:
+        return ""
+    while k - 1 >= 1 and _squash(parts[k - 1]) == _squash(parts[k]):
+        k -= 1                               # 与父目录同名 → 上浮到更外层
+    return "\\".join(parts[:k + 1])
+
+
+def merge_key(exe_path: str, exe_name: str) -> str:
+    """归类组键：预设命中返回组名（如"微信"），否则返回爬根路径键，都不中返回 ""。"""
+    path_l = (exe_path or "").lower()
+    name_l = (exe_name or "").lower()
+    for kind, pattern, group in _MERGE_PRESETS:
+        if (kind == "path" and pattern in path_l) or (kind == "exe" and name_l == pattern):
+            return group
+    return crawl_root(exe_path or "")
+
+
+def build_merge_map(items: dict) -> dict:
+    """{app_key: (exe_path, exe_name)} → {app_key: 组显示名}（纯函数，UI/查询共用）。
+
+    预设组直接生效；爬根组只在**多于一个成员**时生效 —— 单成员组不改名
+    （否则 WorkBuddy 会被显示成目录名 "work buddy"，毫无意义还难看）。
+    爬根组显示名取根目录原名（保留大小写）。"""
+    by_key: dict = {}
+    for app_key, (path, name) in items.items():
+        key = merge_key(path, name)
+        if key:
+            by_key.setdefault(key, []).append(app_key)
+    out: dict = {}
+    for key, members in by_key.items():
+        if "\\" in key:                       # 爬根键（含路径分隔）→ 需多成员
+            if len(members) < 2:
+                continue
+            origin = items[members[0]][0] or key
+            pos = origin.lower().find(key)
+            display = origin[pos:pos + len(key)].rstrip("\\").split("\\")[-1] \
+                if pos >= 0 else key.rsplit("\\", 1)[-1]
+        else:                                 # 预设组名
+            display = key
+        for app_key in members:
+            out[app_key] = display
+    return out
 
 
 # ---------------------------------------------------------------- 判定逻辑

@@ -175,6 +175,11 @@ class Daemon:
     def _on_command(self, item_id: int, _lparam: int) -> None:
         if item_id == tray.Options.OPEN:
             self.open_gui()
+        elif item_id == tray.Options.OPEN_DATA:
+            try:
+                os.startfile(str(config.data_dir()))   # 只打开本应用自己的数据目录
+            except OSError as exc:
+                self.store.log_event("open_data_fail", detail=str(exc))
         elif item_id == tray.Options.PAUSE:
             self.set_paused(not self.paused)
         elif item_id == tray.Options.QUIT:
@@ -380,17 +385,8 @@ def _revive_gui_window(title: str | None = None) -> None:
     """已有统计窗口（可能最小化/被遮挡）时恢复并置前；找不到就安静返回。
 
     BUG-35：窗口最小化后双击快捷方式，GUI 单实例只静默退出、用户毫无反应。
-    句柄类 API 全部声明 argtypes（64 位截断红线）；找不到窗口是常态（无窗/标题
-    语言差异），安静返回即可。"""
-    user32 = ctypes.WinDLL("user32", use_last_error=True)
-    user32.FindWindowW.restype = ctypes.c_void_p
-    user32.FindWindowW.argtypes = [ctypes.c_wchar_p, ctypes.c_wchar_p]
-    hwnd = user32.FindWindowW(None, title or "%s v%s" % (config.APP_TITLE, config.APP_VERSION))
-    if hwnd:
-        user32.ShowWindow.argtypes = [ctypes.c_void_p, ctypes.c_int]
-        user32.SetForegroundWindow.argtypes = [ctypes.c_void_p]
-        user32.ShowWindow(hwnd, 9)          # SW_RESTORE：最小化先恢复
-        user32.SetForegroundWindow(hwnd)
+    实现委托 winutil.revive_window（纯 Win32 窗口操作，句柄 argtypes 全声明）。"""
+    winutil.revive_window(title or "%s v%s" % (config.APP_TITLE, config.APP_VERSION))
 
 
 def run_gui(smoke: bool = False) -> int:

@@ -25,7 +25,8 @@ MAX_FILES = 15           # v0.3 经作者同意 13→15（+i18n.py 双语文案 
 # v0.3 开工时经作者同意 2600→3000（i18n 双语文案/悬浮窗/语言切换）
 # v0.3.1 收紧 3000→2800（i18n 双表并单表 -43、winutil 死代码 -27、
 # data.py 连接适配器 __getattr__ 化 -15；再往下只剩功能实体，见工作日志 09-17）
-MAX_CODE_LINES = 2800
+# v0.4 开工时经作者同意 2800→3000（应用归类引擎+预设/数据质量条/锁屏语义等，09-30 拍板）
+MAX_CODE_LINES = 3000
 # 阈值必须只在 config.py 定义一次，其它模块只许用 config.XXX 访问
 UI_FORBIDDEN = ("sqlite3", "select ", "insert ", "update ", "delete from",
                 ".execute(", ".executemany(", ".executescript(")

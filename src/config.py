@@ -15,7 +15,7 @@ from pathlib import Path
 
 APP_NAME = "UsageWatcher"
 APP_TITLE = "软件使用时长监测"
-APP_VERSION = "0.3.2"
+APP_VERSION = "0.4.0"
 
 # ---------------------------------------------------------------- 路径
 
@@ -65,7 +65,10 @@ BG_SAMPLE_INTERVAL_S = 5.0        # 后台采样周期（活跃时）
 BG_SAMPLE_INTERVAL_IDLE_S = 15.0  # 空闲自适应降频后的采样周期
 IDLE_DOWNGRADE_AFTER_S = 300      # 无输入超过这么久就降频
 CPU_ACTIVE_PCT = 2.0              # 单核百分比阈值（psutil 口径，可 >100）
-IO_ACTIVE_BPS = 32768             # 磁盘读写字节/秒 阈值（32KB/s）
+IO_ACTIVE_BPS = 32768             # 进程 IO（含网络收发）字节/秒阈值（32KB/s）。
+                                  # Windows 的 io_counters().read_bytes 把 socket 收发
+                                  # 也计入"读"（v0.4 修正措辞，实测 Node 案 09-29），
+                                  # 所以这是"总 IO"口径，不是纯磁盘。
 AUDIO_ACTIVE_PEAK = 0.01          # 音频会话峰值 ≥ 此值算"正在出声"（实测播音 0.27/静默 0.000）
 AUDIO_POLL_INTERVAL_S = 1.0       # 音频会话枚举节流（COM 调用约 1ms，1s 足够）
 AUDIO_EXEMPT_WINDOW_S = 30        # AFK 豁免记忆窗：前台应用 30s 内出过声就不截断（防对白间隙翻转）

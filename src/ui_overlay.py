@@ -194,6 +194,19 @@ def _fmt(ms: int) -> str:
     return i18n.t("dur_min", m) if m < 60 else i18n.t("dur_hm", m // 60, m % 60)
 
 
+def restore_if_enabled() -> None:
+    """偏好开了悬浮窗且它没在跑 → 顺手拉起（重启后由打开统计窗口恢复，v0.3）。
+    只探测互斥体（winutil.mutex_alive），绝不在 GUI 进程里创建
+    overlay 的互斥体 —— 否则真悬浮窗启动时会误判"已有实例"而自杀。"""
+    import winutil
+    if not config.load().get("overlay_enabled"):
+        return
+    alive = winutil.mutex_alive("Local\\UsageWatcher_Overlay_"
+                                + (winutil.current_user_sid() or "x"))
+    if not alive:
+        launch_overlay()
+
+
 def run() -> int:
     app = QApplication.instance() or QApplication(sys.argv)
     window = Overlay()

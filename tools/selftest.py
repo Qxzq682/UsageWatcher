@@ -355,13 +355,15 @@ def test_csv_export() -> None:
     check("+ - @ 开头的单元格被转义",
           _csv_safe("+1") == "'+1" and _csv_safe("-2") == "'-2" and _csv_safe("@x") == "'@x")
     check("普通中文名不受影响", _csv_safe("微信") == "微信")
-    rows = csv_rows([{"display_name": "=危险", "exe_name": "app.exe",
+    rows = csv_rows([{"display_name": "=危险", "exe_name": "app.exe", "exe_path": r"D:\Apps\app.exe",
                       "fg_ms": 90_000, "bg_ms": 30_000, "total_ms": 120_000, "fg_ratio": 0.75}])
     # 表头文案与 i18n 同源（不写死中文：切英文后本测试必须照常通过）
-    check("表头 6 列", len(rows[0]) == 6 and rows[0][0] == i18n.t("hdr_app"))
+    check("表头 7 列", len(rows[0]) == 7 and rows[0][0] == i18n.t("hdr_app")
+          and rows[0][2] == i18n.t("hdr_path"), str(rows[0]))
     check("数据行转义与数值换算正确",
-          rows[1][0] == "'=危险" and rows[1][2] == 1.5 and rows[1][4] == 2.0
-          and rows[1][5] == 75.0, str(rows[1]))
+          rows[1][0] == "'=危险" and rows[1][2] == r"D:\Apps\app.exe"
+          and rows[1][3] == 1.5 and rows[1][5] == 2.0
+          and rows[1][6] == 75.0, str(rows[1]))
 
 
 def test_clear_all_keeps_daemon_writing() -> None:
@@ -852,6 +854,90 @@ def test_uninstall_redirect_guard() -> None:
         sh.rmtree(base, ignore_errors=True)
 
 
+def test_merge_grouping() -> None:
+    """v0.4 应用归类：爬根 / 预设 / 误合防线。
+    每条"防线"断言都对应真库冒烟抓到的一个真实误合组，防回归。"""
+    print("\n[38] 应用归类：爬根与预设（v0.4）")
+    check("UE 游戏深层结构爬到应用根",
+          apps.crawl_root(r"E:\Games\Wuthering Waves\Game\Content\Binaries\Win64\Client-Win64-Shipping.exe")
+          == r"e:\games\wuthering waves")
+    check("版本号目录被跳过",
+          apps.crawl_root(r"D:\Apps\MyApp\2.1.0\myapp.exe") == r"d:\apps\myapp")
+    check("根与父目录同名时上浮一层",
+          apps.crawl_root(r"D:\Games\Delta Force\Delta Force\DeltaForce.exe")
+          == r"d:\games\delta force")
+    check("CS2 深层结构爬到自身目录（不并入他组）",
+          apps.crawl_root(r"E:\SteamLibrary\steamapps\common\Counter-Strike Global Offensive"
+                          r"\game\bin\win64\cs2.exe")
+          == r"e:\steamlibrary\steamapps\common\counter-strike global offensive")
+    check("Windows 目录不爬根（system32 六进程误合案）",
+          apps.crawl_root(r"C:\Windows\System32\LogFiles\foo.exe") == "")
+    check("WindowsApps 不爬根",
+          apps.crawl_root(r"C:\Program Files\WindowsApps\B9ECED6F.App_1.0_x64\App.exe") == "")
+    check("点开头目录不爬根（portablegit / python versions 误合案）",
+          apps.crawl_root(r"C:\Users\Q\.workbuddy\binaries\python\versions\3.13.12\python.exe") == "")
+    check("存放目录不作根（D:\\下载 两个无关安装包误合案）",
+          apps.crawl_root(r"D:\下载\dsh-latest-windows-x64.exe") == "")
+    check("路径预设命中（鸣潮）",
+          apps.merge_key(r"D:\Games\Wuthering Waves\Game\Binaries\Win64\x.exe", "x.exe") == "鸣潮")
+    check("exe 基名预设命中（微信跨树家族）",
+          apps.merge_key(r"C:\Anywhere\Weixin.exe", "Weixin.exe") == "微信")
+    webview = r"C:\Program Files (x86)\Microsoft\EdgeWebView\Application\152.0.4191.66\msedgewebview2.exe"
+    check("EdgeWebView 与 Edge 是不同根（不互相吞并），且爬到 EdgeWebView",
+          apps.crawl_root(webview) == r"c:\program files (x86)\microsoft\edgewebview"
+          and apps.crawl_root(r"C:\Program Files (x86)\Microsoft\Edge\Application\msedge.exe")
+          == r"c:\program files (x86)\microsoft\edge")
+    check("office6 视为结构目录，爬到 WPS Office 根",
+          apps.crawl_root(r"C:\Users\Q\AppData\Local\Kingsoft\WPS Office\12.1.0.28505\office6\wps.exe")
+          == r"c:\users\q\appdata\local\kingsoft\wps office")
+    check("路径短于三层返回空", apps.crawl_root(r"D:\foo.exe") == "")
+    check("空路径返回空", apps.crawl_root("") == "")
+
+
+def test_merge_map_and_totals() -> None:
+    print("\n[39] 归并生效规则与组内并集聚合（v0.4）")
+    items = {
+        r"d:\apps\foo\bar.exe": (r"D:\Apps\Foo\bar.exe", "bar.exe"),
+        r"c:\any\weixin.exe": (r"C:\Any\Weixin.exe", "Weixin.exe"),
+    }
+    m = apps.build_merge_map(items)
+    check("预设组单成员也生效（微信内嵌浏览器独立路径案）",
+          m.get(r"c:\any\weixin.exe") == "微信", str(m))
+    check("单成员爬根组不生效", r"d:\apps\foo\bar.exe" not in m)
+
+    m2 = apps.build_merge_map({
+        "k1": (r"D:\Soft\MyApp\bin\a.exe", "a.exe"),
+        "k2": (r"D:\Soft\MyApp\bin\b.exe", "b.exe"),
+    })
+    check("两成员爬根组生效且显示名保留原大小写",
+          m2.get("k1") == "MyApp" and m2.get("k2") == "MyApp", str(m2))
+
+    import shutil as sh
+    store = _temp_store()
+    try:
+        i1 = apps.AppInfo(r"d:\soft\myapp\bin\a.exe", r"d:\soft\myapp\bin\a.exe", "a.exe", "A", "", "")
+        i2 = apps.AppInfo(r"d:\soft\myapp\bin\b.exe", r"d:\soft\myapp\bin\b.exe", "b.exe", "B", "", "")
+        store.upsert_app(i1)
+        store.upsert_app(i2)
+        same_day = track.day_of(ms("09:00"))
+        store.write_segments([
+            track.Segment(i1.app_key, 11, "bg", ms("09:00"), ms("09:10")),
+            track.Segment(i2.app_key, 12, "bg", ms("09:05"), ms("09:15")),
+        ])
+        mmap = {i1.app_key: "MyApp", i2.app_key: "MyApp"}
+        rows = store.app_totals(same_day, same_day, merge_map=mmap)
+        check("归并后只有一行", len(rows) == 1, str(len(rows)))
+        if rows:
+            check("归并组显示名用组名", rows[0]["display_name"] == "MyApp", rows[0]["display_name"])
+            check("组时长为成员区间大并集 15 分钟（相加会是 20 分钟）",
+                  rows[0]["total_ms"] == 15 * 60 * 1000, str(rows[0]["total_ms"]))
+        rows2 = store.app_totals(same_day, same_day)
+        check("不传 merge_map 时行为不变（仍是两行）", len(rows2) == 2, str(len(rows2)))
+    finally:
+        store.close()
+        sh.rmtree(store.path.parent, ignore_errors=True)
+
+
 def main() -> int:
     print("=" * 68)
     print(" 自测：纯逻辑回归 + 安全红线")
@@ -890,6 +976,8 @@ def main() -> int:
     test_store_resilience()
     test_deps_declared()
     test_uninstall_redirect_guard()
+    test_merge_grouping()
+    test_merge_map_and_totals()
 
     print("\n" + "=" * 68)
     print("通过 %d 项，失败 %d 项" % (PASSED, len(FAILED)))

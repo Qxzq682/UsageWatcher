@@ -382,6 +382,12 @@ def _cpu_total(proc) -> float:
 
 
 def _io_total(proc) -> int:
-    """累计磁盘 I/O 字节。注意 Windows 上 psutil 没有单进程网络字节。"""
+    """累计进程 I/O 字节（后台判活口径）。
+
+    注意（v0.4 措辞修正）：Windows 的 io_counters().read_bytes **包含网络
+    收发字节**（socket 收发被计入 ReadTransfer，psutil 没有单进程网络计数）。
+    所以判活阈值实际是"进程总 IO（磁盘+网络）"——Node/Electron 类进程
+    走网络时也会被判活跃（实测：dsh ego-cast 经 CDP 20fps 截屏案，09-29）。
+    """
     counters = proc.io_counters()
     return int(counters.read_bytes + counters.write_bytes)

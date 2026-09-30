@@ -118,6 +118,14 @@ class Store:
             (cutoff,)).fetchall()
         return {str(r["exe_path"]).lower() for r in rows}
 
+    def app_paths(self) -> dict:
+        """全部应用的 exe 路径与基名（应用归类归并用，v0.4）：
+        {app_key: (exe_path, exe_name)}。"""
+        rows = self.conn.execute(
+            "SELECT app_key, exe_path, exe_name FROM app").fetchall()
+        return {str(r["app_key"]): (str(r["exe_path"] or ""), str(r["exe_name"] or ""))
+                for r in rows}
+
     # ------------------------------------------------------------ 可监测性
 
     def upsert_capability(self, cap) -> None:
@@ -235,30 +243,51 @@ class Store:
                 (int(row["start_ms"]), int(row["end_ms"])))
         return grouped
 
-    def app_totals(self, day_from: str, day_to: str, limit: int = 0) -> List[dict]:
+    def app_totals(self, day_from: str, day_to: str, limit: int = 0,
+                   merge_map: Optional[dict] = None) -> List[dict]:
         """周期内每个应用的前台/后台/活跃总时长，全部用区间并集：同类多进程
         区间重叠、前台与后台也重叠，total 是 fg∪bg 大并集而非相加
-        （相加实测虚高过 80%）。"""
+        （相加实测虚高过 80%）。
+
+        merge_map（v0.4）：{app_key: 组显示名}，由 apps.build_merge_map 生成。
+        命中的应用按**组**重新做并集聚合 —— 归并不只是改显示名：多进程家族
+        （鸣潮本体+启动器、微信+内嵌浏览器）的后台区间会互相重叠，必须把
+        组内所有成员的区间放在一起算大并集，否则组的时长是各成员相加的虚高值。
+        """
         grouped = self._intervals(day_from, day_to)
         meta = {
             int(r["app_id"]): r for r in self.conn.execute(
                 "SELECT app_id, app_key, display_name, exe_name, exe_path FROM app").fetchall()
         }
-        totals: dict = {}
-        union_spans: dict = {}
-        for (app_id, kind), spans in grouped.items():
-            entry = totals.setdefault(app_id, {"fg_ms": 0, "bg_ms": 0})
-            entry["fg_ms" if kind == "fg" else "bg_ms"] += track.union_ms(spans)
-            union_spans.setdefault(app_id, []).extend(spans)
-        out: List[dict] = []
-        for app_id, entry in totals.items():
+        mmap = merge_map or {}
+        group_names = set(mmap.values())
+
+        def group_of(app_id: int) -> Optional[str]:
             row = meta.get(app_id)
             if row is None:
+                return None
+            return mmap.get(str(row["app_key"])) or ("id:%d" % app_id)
+
+        totals: dict = {}
+        union_spans: dict = {}
+        member: dict = {}      # 组 -> 组内第一个 app_id（展示元数据的代表行）
+        for (app_id, kind), spans in grouped.items():
+            g = group_of(app_id)
+            if g is None:
                 continue
-            total = track.union_ms(union_spans.get(app_id, []))
+            entry = totals.setdefault(g, {"fg_ms": 0, "bg_ms": 0})
+            entry["fg_ms" if kind == "fg" else "bg_ms"] += track.union_ms(spans)
+            union_spans.setdefault(g, []).extend(spans)
+            member.setdefault(g, app_id)
+        out: List[dict] = []
+        for g, entry in totals.items():
+            row = meta[member[g]]
+            merged = g in group_names          # 归并组：显示名用组名
+            total = track.union_ms(union_spans.get(g, []))
             out.append({
                 "app_key": row["app_key"],
-                "display_name": row["display_name"] or row["exe_name"] or row["app_key"],
+                "display_name": g if merged else
+                (row["display_name"] or row["exe_name"] or row["app_key"]),
                 "exe_name": row["exe_name"] or "", "exe_path": row["exe_path"] or "",
                 "fg_ms": entry["fg_ms"], "bg_ms": entry["bg_ms"], "total_ms": total,
                 "fg_ratio": (entry["fg_ms"] / total) if total else 0.0,
@@ -267,6 +296,25 @@ class Store:
         if limit:
             out = out[:limit]
         return out
+
+    def quality_stats(self, day: str) -> dict:
+        """数据质量条（v0.4）：某天的片段数 / 应用数 / 覆盖窗口 / 采集错误次数。
+
+        错误数从 event 表统计（守护进程按 R8 写入的 collect_error 等），
+        让"数据可能不全"可见，而不是让用户对着缺口猜。"""
+        row = self.conn.execute(
+            "SELECT COUNT(*) n, COUNT(DISTINCT app_id) apps, MIN(start_ms) a, MAX(end_ms) b"
+            " FROM segment WHERE day = ?", (day,)).fetchone()
+        try:
+            day_start = int(time.mktime(time.strptime(day, "%Y-%m-%d"))) * 1000
+            err = int(self.conn.execute(
+                "SELECT COUNT(*) n FROM event WHERE type LIKE '%error%' AND ts_ms >= ?",
+                (day_start,)).fetchone()["n"])
+        except (ValueError, OverflowError, sqlite3.Error):
+            err = -1                            # 查不了就如实显示"未知"
+        return {"segments": int(row["n"]), "apps": int(row["apps"]),
+                "first_ms": int(row["a"] or 0), "last_ms": int(row["b"] or 0),
+                "errors": err}
 
 
     def daily_series(self, day_from: str, day_to: str) -> List[dict]:

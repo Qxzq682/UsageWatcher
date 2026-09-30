@@ -44,33 +44,64 @@ def scan_source(folder: Path) -> list:
 
     只扫代码：注释与文档字符串里的说明文字不算 —— 我们的注释里本来就会
     写到"绝不调用 GetWindowText"这类话，那是说明不是调用。
+    （v0.4 修订：旧版用"单行引号奇偶"判断字符串，对**多行 docstring 中间行**
+    失效——中间行没有引号，docstring 里写 "socket 收发" 被误报成网络调用。
+    换成字符级状态机，跨行三引号 / 转义 / 行注释一次处理对。）
     """
     hits: list = []
     for path in sorted(Path(folder).glob("*.py")):
         source = path.read_text(encoding="utf-8")
+        in_triple = None                 # 跨行三引号状态：None 或 '"""' / "'''"
         for number, line in enumerate(source.splitlines(), 1):
-            code = line.split("#", 1)[0]
+            code, in_triple = _code_only(line, in_triple)
             if not code.strip():
                 continue
             for match in _PATTERN.finditer(code):
-                token = match.group(1)
-                # 允许出现在字符串字面量之外的判断太复杂，这里只排除"仅出现在字符串里"的误报：
-                if _only_in_string(code, token):
-                    continue
-                hits.append((path.name, number, token, line.strip()))
+                hits.append((path.name, number, match.group(1), line.strip()))
     return hits
 
 
-def _only_in_string(code: str, token: str) -> bool:
-    """判断这个命中是不是落在引号里（比如系统进程名 "smss.exe"）。
+def _code_only(line: str, in_triple):
+    """剥离字符串字面量与注释，返回 (剩余代码, 新的跨行三引号状态)。
 
-    简单可靠的依据：命中位置的引号数量为奇数 → 处在字符串内部。
-    """
-    index = code.find(token)
-    while index != -1:
-        if code[:index].count('"') % 2 == 1 or code[:index].count("'") % 2 == 1:
-            return True
-        index = code.find(token, index + 1)
+    状态机逐字符处理：三引号（含跨行）、单双引号、反斜杠转义、# 行注释。
+    f-string 内嵌表达式会被整体当字符串剥掉 → 只可能漏报不会误报（安全方向）。"""
+    out: list = []
+    quote = None                         # 当前行内单/双引号状态
+    i = 0
+    n = len(line)
+    while i < n:
+        if in_triple:
+            if line.startswith(in_triple, i):
+                in_triple = None
+                i += 3
+            else:
+                i += 1
+            continue
+        if quote:
+            ch = line[i]
+            if ch == "\\":
+                i += 2
+                continue
+            if ch == quote:
+                quote = None
+            i += 1
+            continue
+        triple = line[i:i + 3]
+        if triple in ('"""', "'''"):
+            in_triple = triple
+            i += 3
+            continue
+        ch = line[i]
+        if ch in "\"'":
+            quote = ch
+            i += 1
+            continue
+        if ch == "#":
+            break
+        out.append(ch)
+        i += 1
+    return "".join(out), in_triple
     return False
 
 

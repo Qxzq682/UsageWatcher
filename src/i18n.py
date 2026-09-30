@@ -23,7 +23,8 @@ _T = {
                   "%s\nActive today %s (fg %s · bg %s)"),
     "tip_errors": ("\n[!] 采集异常 %d 次", "\n[!] %d collection errors"),
     "tray_summary": ("今日前台 %s · 后台 %s", "Today fg %s · bg %s"),
-    "tray_open": ("打开统计窗口", "Open statistics"), "tray_pause": ("暂停统计", "Pause tracking"),
+    "tray_open": ("打开统计窗口", "Open statistics"), "tray_open_data": ("打开数据目录", "Open data folder"),
+    "tray_pause": ("暂停统计", "Pause tracking"),
     "tray_resume": ("继续统计", "Resume tracking"), "tray_quit": ("退出", "Exit"),
     "period_today": ("今日", "Today"), "period_yesterday": ("昨日", "Yesterday"),
     "period_byday": ("按日", "By date"),
@@ -36,7 +37,7 @@ _T = {
     "hdr_app": ("应用", "Application"), "hdr_fg": ("前台", "Foreground"),
     "hdr_bg": ("后台活跃", "Background"),
     "hdr_total": ("活跃总时长(去重)", "Active total (dedup)"), "hdr_fg_pct": ("前台占比", "FG ratio"),
-    "hdr_exe": ("可执行文件", "Executable"), "hdr_fg_min": ("前台(分钟)", "Foreground (min)"),
+    "hdr_exe": ("可执行文件", "Executable"), "hdr_path": ("路径", "Path"), "hdr_fg_min": ("前台(分钟)", "Foreground (min)"),
     "hdr_bg_min": ("后台活跃(分钟)", "Background (min)"),
     "hdr_total_min": ("活跃总时长(分钟)", "Active total (min)"),
     "hdr_fg_pct_c": ("前台占比%", "FG ratio %"), "hdr_publisher": ("发布者", "Publisher"),
@@ -55,6 +56,8 @@ _T = {
     "daily_around": ("%s 前后 7 天每日总时长", "Daily totals within 7 days of %s"),
     "daily_follow": ("%s每日总时长", "Daily totals — %s"),
     "summary_line": ("活跃总时长 %s　其中前台 %s（%.0f%%）", "Active total %s, foreground %s (%.0f%%)"),
+    "quality_line": ("\n数据质量：当天 %d 段 · %d 个应用 · 采集错误 %d",
+                     "\nData quality: %d segments · %d apps · %d collection errors"),
     "hint_not_running": ("守护进程未运行（打开窗口时已尝试自动拉起）—— "
                          "若长时间没有变化，请双击「启动.bat」。",
                          "Daemon is not running (it was auto-started when the window "

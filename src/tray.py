@@ -242,6 +242,7 @@ class Options:
     OPEN = 1001
     PAUSE = 1002
     QUIT = 1003
+    OPEN_DATA = 1004     # 打开数据目录（v0.4）
 
     @staticmethod
     def build(paused: bool, today_fg: str, today_bg: str) -> list:
@@ -249,6 +250,7 @@ class Options:
             (0, i18n.t("tray_summary", today_fg, today_bg), MF_GRAYED),
             (0, "", None),
             (Options.OPEN, i18n.t("tray_open"), 0),
+            (Options.OPEN_DATA, i18n.t("tray_open_data"), 0),
             (Options.PAUSE, i18n.t("tray_resume" if paused else "tray_pause"),
              MF_CHECKED if paused else 0),
             (0, "", None),

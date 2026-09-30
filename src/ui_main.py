@@ -22,6 +22,7 @@ from PySide6.QtWidgets import (
     QTabWidget, QVBoxLayout, QWidget,
 )
 
+import apps
 import config
 import data
 import i18n
@@ -55,12 +56,14 @@ def _csv_safe(text: str) -> str:
 
 def csv_rows(rows: list) -> list:
     """把 app_totals 的行转成 CSV 单元格（含表头），纯函数便于回归。"""
-    out = [(i18n.t("hdr_app"), i18n.t("hdr_exe"), i18n.t("hdr_fg_min"),
-            i18n.t("hdr_bg_min"), i18n.t("hdr_total_min"), i18n.t("hdr_fg_pct_c"))]
+    out = [(i18n.t("hdr_app"), i18n.t("hdr_exe"), i18n.t("hdr_path"),
+            i18n.t("hdr_fg_min"), i18n.t("hdr_bg_min"),
+            i18n.t("hdr_total_min"), i18n.t("hdr_fg_pct_c"))]
     for r in rows:
         out.append((
             _csv_safe(r["display_name"]),
             _csv_safe(r["exe_name"]),
+            _csv_safe(r["exe_path"]),
             round(r["fg_ms"] / 60000, 1),
             round(r["bg_ms"] / 60000, 1),
             round(r["total_ms"] / 60000, 1),
@@ -351,12 +354,17 @@ class MainWindow(QMainWindow):
         key = PERIOD_KEYS[self.period.currentIndex()]
         self.day_pick.setVisible(key == "byday")
         day_from, day_to = period_range(key, day=self._picked_day())
-        rows = self.store.app_totals(day_from, day_to, limit=config.load()["rank_limit"])
+        merge_map = apps.build_merge_map(self.store.app_paths())
+        rows = self.store.app_totals(day_from, day_to, limit=config.load()["rank_limit"],
+                                     merge_map=merge_map)
         summary = self.store.totals_summary(day_from, day_to)
+        quality = self.store.quality_stats(day_to)
         self.summary.setText(i18n.t("summary_line",
                                     fmt_duration(summary["total_ms"]),
                                     fmt_duration(summary["fg_ms"]),
-                                    summary["fg_ratio"] * 100))
+                                    summary["fg_ratio"] * 100)
+                             + i18n.t("quality_line", quality["segments"],
+                                      quality["apps"], quality["errors"]))
         self.model.set_rows(rows)
         self.bars.set_rows(rows)
         # 柱状图跟随周期（BUG-7）：单日/本周只有 1~几天，单独画没有信息量，
@@ -423,7 +431,8 @@ def run(smoke: bool = False, daemon_alive=None) -> int:
 
     app = QApplication.instance() or QApplication(sys.argv)
     store = data.Store()
-    _restore_overlay()
+    import ui_overlay
+    ui_overlay.restore_if_enabled()
     window = MainWindow(store, daemon_alive=daemon_alive)
     window.show()
     if smoke:
@@ -432,17 +441,3 @@ def run(smoke: bool = False, daemon_alive=None) -> int:
     code = app.exec()
     store.close()
     return code
-
-
-def _restore_overlay() -> None:
-    """偏好开了悬浮窗且它没在跑 → 顺手拉起（重启后由打开统计窗口恢复，v0.3）。
-    只用 OpenMutexW 探测（winutil.mutex_alive），绝不在 GUI 进程里创建
-    overlay 的互斥体 —— 否则真悬浮窗启动时会误判"已有实例"而自杀。"""
-    import winutil
-    import ui_overlay
-    if not config.load().get("overlay_enabled"):
-        return
-    alive = winutil.mutex_alive("Local\\UsageWatcher_Overlay_"
-                                + (winutil.current_user_sid() or "x"))
-    if not alive:
-        ui_overlay.launch_overlay()
