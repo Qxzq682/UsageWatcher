@@ -301,3 +301,18 @@
   daily_fg 并集 3 组断言。
 - GUI 冒烟（smoke 模式自退）rc=0；真库冒烟：day_grid 288 格、Top5 数字合理、
   override 合并/拆组语义正确。纯代码 3272/3350；三条腿全绿。
+
+### [0.5.1] - 2026-10-10
+
+**修复：Move or Die 显示为 love.exe**（外部 agent 诊断报告，本会话独立证伪后采纳）。
+
+- 根因：LÖVE 引擎游戏的 exe 埋在 `Love\win\` 下，`win` 不在 _GENERIC_DIRS → 爬根
+  停在 `...\Move or Die\Love\win`（过深）→ 单成员组不生效 → 回落显示 exe 基名。
+  库内数据完全正确（app_id=1066，10-06 21:41–22:49），纯显示层问题。
+- 修复：①`win` 补进 _GENERIC_DIRS（任何 `<应用>\win\` 结构通吃）；②新增 **Steam
+  库权威根**规则——`steamapps\common\<游戏名>` 锚定正则命中即生效（单成员也改名：
+  这是 Steam 决定的权威名），显示名取原路径大小写。泛化"遇 common 取下层"会
+  把全部 Steam 游戏并成一组，已用反向断言锁死。
+- 真库复验：10-06 "Move or Die 67.6 分钟" 与诊断预测一致；全库 7 个 Steam 游戏
+  各自成组零误合（BlackMythWukong/Cyberpunk 2077/Stardew Valley…显示名顺带全部
+  升级为游戏目录名）。selftest 167 项（+4 steam 断言）、audit 9/9、GUI smoke rc=0。

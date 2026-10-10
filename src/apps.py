@@ -131,6 +131,7 @@ _GENERIC_DIRS = {
     "apps", "packages", "container", "files",
     "application", "office6",   # 真库冒烟：EdgeWebView\Application、WPS office6
     "content",                  # UE 引擎资源目录（selftest 补测暴露）
+    "win",                      # LÖVE 游戏的 Love\win\ 结构（10-06 love.exe 案）
 }
 # 文件"存放地"而非"应用名"：出现在路径任一段就说明这条 exe 是被随手放的
 # （如 D:\下载\xxx.exe），向上爬没有证据意义 —— 真库冒烟实证：D:\下载 下
@@ -141,6 +142,12 @@ _STORAGE_DIRS = {
     "新建文件夹", "new folder", "temp", "tmp",
 }
 _VERSION_RE = re.compile(r"^v?\d+([._-]\d+)*$")
+
+# Steam 库权威根：steamapps\common\<游戏名> 就是应用根（目录结构由 Steam 决定，
+# 不是工程结构）。必须锚定 steamapps\common —— 泛化成"遇 common 取下层"会把
+# 全部 Steam 游戏并进一组 common。命中即生效：单成员也改名（这是权威名，
+# 不受"单成员爬根组不生效"约束；love.exe 案：版本资源无产品名的游戏靠它显示）。
+_STEAM_RE = re.compile(r"[\\/]steamapps[\\/]common[\\/]([^\\/]+)", re.IGNORECASE)
 
 # 内置预设（先于爬根，命中即归并）。模式一律小写：
 #   ("path", 子串, 组名) = 路径含子串     ("exe", 基名, 组名) = exe 基名相等
@@ -190,12 +197,16 @@ def crawl_root(exe_path: str) -> str:
 
 
 def merge_key(exe_path: str, exe_name: str) -> str:
-    """归类组键：预设命中返回组名（如"微信"），否则返回爬根路径键，都不中返回 ""。"""
+    """归类组键：预设命中返回组名（如"微信"），Steam 库返回 "steam:游戏名"，
+    否则返回爬根路径键，都不中返回 ""。"""
     path_l = (exe_path or "").lower()
     name_l = (exe_name or "").lower()
     for kind, pattern, group in _MERGE_PRESETS:
         if (kind == "path" and pattern in path_l) or (kind == "exe" and name_l == pattern):
             return group
+    m = _STEAM_RE.search(path_l)
+    if m:
+        return "steam:" + m.group(1)
     return crawl_root(exe_path or "")
 
 
@@ -214,7 +225,11 @@ def build_merge_map(items: dict, overrides: Optional[dict] = None) -> dict:
             by_key.setdefault(key, []).append(app_key)
     out: dict = {}
     for key, members in by_key.items():
-        if "\\" in key:                       # 爬根键（含路径分隔）→ 需多成员
+        if key.startswith("steam:"):          # Steam 权威根：单成员也生效
+            origin = items[members[0]][0] or key
+            m = _STEAM_RE.search(origin)
+            display = m.group(1) if m else key[6:]
+        elif "\\" in key:                     # 爬根键（含路径分隔）→ 需多成员
             if len(members) < 2:
                 continue
             origin = items[members[0]][0] or key

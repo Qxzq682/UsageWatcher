@@ -1007,6 +1007,27 @@ def test_daily_fg() -> None:
         sh.rmtree(store.path.parent, ignore_errors=True)
 
 
+def test_steam_root() -> None:
+    print("\n[43] Steam 库权威根（love.exe/Move or Die 案，10-10）")
+    love = r"E:\SteamLibrary\steamapps\common\Move or Die\Love\win\love.exe"
+    m = apps.build_merge_map({"k1": (love, "love.exe")})
+    check("steam 单成员也生效且保留原大小写（版本资源无产品名的游戏）",
+          m.get("k1") == "Move or Die", str(m))
+    m2 = apps.build_merge_map({
+        "a": (love, "love.exe"),
+        "b": (r"E:\SteamLibrary\steamapps\common\Counter-Strike Global Offensive"
+              r"\game\bin\win64\cs2.exe", "cs2.exe"),
+    })
+    check("不同 Steam 游戏各自成组（不并进一组 common）",
+          m2.get("a") == "Move or Die" and m2.get("b") == "Counter-Strike Global Offensive",
+          str(m2))
+    check("steam 之外的多成员爬根组行为不变", apps.build_merge_map({
+        "x": (r"D:\Soft\MyApp\bin\a.exe", "a.exe"),
+        "y": (r"D:\Soft\MyApp\bin\b.exe", "b.exe")}).get("x") == "MyApp")
+    check("非 steam 路径不受影响（单成员仍不改名）",
+          "z" not in apps.build_merge_map({"z": (r"D:\Tools\edit.exe", "edit.exe")}))
+
+
 def main() -> int:
     print("=" * 68)
     print(" 自测：纯逻辑回归 + 安全红线")
@@ -1050,6 +1071,7 @@ def main() -> int:
     test_v05_overrides()
     test_day_grid()
     test_daily_fg()
+    test_steam_root()
 
     print("\n" + "=" * 68)
     print("通过 %d 项，失败 %d 项" % (PASSED, len(FAILED)))
