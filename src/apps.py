@@ -199,12 +199,14 @@ def merge_key(exe_path: str, exe_name: str) -> str:
     return crawl_root(exe_path or "")
 
 
-def build_merge_map(items: dict) -> dict:
+def build_merge_map(items: dict, overrides: Optional[dict] = None) -> dict:
     """{app_key: (exe_path, exe_name)} → {app_key: 组显示名}（纯函数，UI/查询共用）。
 
-    预设组直接生效；爬根组只在**多于一个成员**时生效 —— 单成员组不改名
-    （否则 WorkBuddy 会被显示成目录名 "work buddy"，毫无意义还难看）。
-    爬根组显示名取根目录原名（保留大小写）。"""
+    优先级：用户即席规则（v0.5，overrides={exe路径小写: 组名或""}）>
+    内置预设 > 爬根。预设组直接生效；爬根组只在**多于一个成员**时生效 ——
+    单成员组不改名（否则 WorkBuddy 会被显示成目录名 "work buddy"，毫无意义
+    还难看）。爬根组显示名取根目录原名（保留大小写）。
+    用户规则值为 "" 表示"强制不归并"（把爬根/预设归并的成员拆出来）。"""
     by_key: dict = {}
     for app_key, (path, name) in items.items():
         key = merge_key(path, name)
@@ -223,6 +225,14 @@ def build_merge_map(items: dict) -> dict:
             display = key
         for app_key in members:
             out[app_key] = display
+    for app_key, (path, _name) in items.items():
+        rule = (overrides or {}).get((path or "").lower())
+        if rule is None:
+            continue
+        if rule:
+            out[app_key] = rule               # 用户合并：覆盖预设与爬根
+        else:
+            out.pop(app_key, None)            # 用户拆组：从任何归并中移除
     return out
 
 

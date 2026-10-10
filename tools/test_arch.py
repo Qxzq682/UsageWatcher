@@ -16,7 +16,7 @@ SRC = Path(__file__).resolve().parent.parent / "src"
 
 MAX_FILE_LINES = 450    # v0.2 开工时经作者同意 400→450（图标/口径解释/日期切换塞压 ui_main）
 MAX_FUNC_LINES = 60      # 防屎山核心配额，不为新功能放水
-MAX_FILES = 15           # v0.3 经作者同意 13→15（+i18n.py 双语文案 + ui_overlay.py 悬浮窗）
+MAX_FILES = 18           # v0.5 经作者同意 15→18（+ui_charts/ui_health/ui_merge，Q 令"按需放宽"）
 # 规模上限用「纯代码行」衡量：文档串 / 注释 / 空行不计入。
 # 理由：这个上限的意图是限制**实现规模**，而不是惩罚写注释。
 # 早先用总行数衡量时，2872 行里有 895 行是文档与空行，把注释算成"超标"是量错了对象。
@@ -26,7 +26,9 @@ MAX_FILES = 15           # v0.3 经作者同意 13→15（+i18n.py 双语文案 
 # v0.3.1 收紧 3000→2800（i18n 双表并单表 -43、winutil 死代码 -27、
 # data.py 连接适配器 __getattr__ 化 -15；再往下只剩功能实体，见工作日志 09-17）
 # v0.4 开工时经作者同意 2800→3000（应用归类引擎+预设/数据质量条/锁屏语义等，09-30 拍板）
-MAX_CODE_LINES = 3000
+# v0.5 开工时经作者同意 3000→3350（右键合并 UI/数据健康/Top5 趋势/月度导出，
+#      Q 令"按需放宽，结束后精修"——v0.6 精修阶段的目标是收回来）
+MAX_CODE_LINES = 3350
 # 阈值必须只在 config.py 定义一次，其它模块只许用 config.XXX 访问
 UI_FORBIDDEN = ("sqlite3", "select ", "insert ", "update ", "delete from",
                 ".execute(", ".executemany(", ".executescript(")

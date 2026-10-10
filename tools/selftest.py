@@ -938,6 +938,75 @@ def test_merge_map_and_totals() -> None:
         sh.rmtree(store.path.parent, ignore_errors=True)
 
 
+def test_v05_overrides() -> None:
+    print("\n[40] 用户即席合并规则覆盖（v0.5）")
+    items = {
+        "k1": (r"D:\Soft\MyApp\bin\a.exe", "a.exe"),
+        "k2": (r"D:\Soft\MyApp\bin\b.exe", "b.exe"),
+        "k3": (r"C:\Any\Weixin.exe", "Weixin.exe"),
+    }
+    ov = {r"d:\soft\myapp\bin\a.exe": "我的合并"}
+    m = apps.build_merge_map(items, overrides=ov)
+    check("用户规则把单成员并进新组（优先于爬根多成员规则）",
+          m.get("k1") == "我的合并", str(m))
+    check("未覆盖的成员保持原归并", m.get("k2") == "MyApp", str(m.get("k2")))
+    ov2 = {r"c:\any\weixin.exe": ""}
+    m2 = apps.build_merge_map(items, overrides=ov2)
+    check("空串规则拆出预设组（微信成员恢复原始显示）",
+          "k3" not in m2, str(m2))
+    check("拆组不影响其它成员", m2.get("k1") == "MyApp" or "k1" not in m2, str(m2))
+
+
+def test_day_grid() -> None:
+    print("\n[41] 数据健康网格与断档归因（v0.5）")
+    import time as tm
+    day = "2026-10-10"
+    day_start = int(tm.mktime(tm.strptime(day, "%Y-%m-%d"))) * 1000
+    minute = 60 * 1000
+    segs = [
+        ("fg", day_start, day_start + 60 * minute, 16),      # 00:00-01:00 空闲截断
+        ("fg", day_start + 130 * minute, day_start + 180 * minute, 0),  # 断档 70 分钟
+        ("bg", day_start + 185 * minute, day_start + 190 * minute, 0),  # 5 分钟缝不算断档
+    ]
+    grid = track.build_day_grid(day, day_start, segs)
+    check("网格 288 格", len(grid["slots"]) == 288, str(len(grid["slots"])))
+    check("前台格=2、后台格=1、空格=0",
+          grid["slots"][0] == 2 and grid["slots"][37] == 1 and grid["slots"][200] == 0,
+          str(grid["slots"][:40]))
+    check("60-130 分空档归因为 idle；185 分的 5 分钟缝按 >=5 分钟口径计入 quiet",
+          [g["reason"] for g in grid["gaps"]] == ["idle", "quiet"], str(grid["gaps"]))
+    check("覆盖窗口从首个片段到最后片段（end 不侵占下一格）",
+          grid["first_ms"] == day_start
+          and grid["last_ms"] == day_start + 190 * minute, str(grid["last_ms"]))
+    near = track.build_day_grid(day, day_start, segs[:2] + [
+        ("fg", day_start + 182 * minute, day_start + 184 * minute, 0)])
+    check("小于 5 分钟的缝不算断档（2 分钟缝被忽略，长断档保留）",
+          [g["reason"] for g in near["gaps"]] == ["idle"], str(near["gaps"]))
+
+
+def test_daily_fg() -> None:
+    print("\n[42] 每日按应用前台并集（v0.5 Top5 趋势）")
+    import shutil as sh
+    store = _temp_store()
+    try:
+        i1 = apps.AppInfo(r"d:\x\a.exe", r"d:\x\a.exe", "a.exe", "Alpha", "", "")
+        store.upsert_app(i1)
+        same_day = track.day_of(ms("09:00"))
+        store.write_segments([
+            track.Segment(i1.app_key, 11, "fg", ms("09:00"), ms("09:10")),
+            track.Segment(i1.app_key, 12, "fg", ms("09:05"), ms("09:15")),
+            track.Segment(i1.app_key, 13, "bg", ms("09:00"), ms("09:20")),
+        ])
+        fg = store.daily_fg(same_day, same_day)
+        check("单应用前台并集 15 分钟（重叠不累加）",
+              fg[same_day]["Alpha"] == 15 * 60 * 1000, str(fg))
+        fg2 = store.daily_fg(same_day, same_day, merge_map={i1.app_key: "组A"})
+        check("归并组名做标签", fg2[same_day]["组A"] == 15 * 60 * 1000, str(fg2))
+    finally:
+        store.close()
+        sh.rmtree(store.path.parent, ignore_errors=True)
+
+
 def main() -> int:
     print("=" * 68)
     print(" 自测：纯逻辑回归 + 安全红线")
@@ -978,6 +1047,9 @@ def main() -> int:
     test_uninstall_redirect_guard()
     test_merge_grouping()
     test_merge_map_and_totals()
+    test_v05_overrides()
+    test_day_grid()
+    test_daily_fg()
 
     print("\n" + "=" * 68)
     print("通过 %d 项，失败 %d 项" % (PASSED, len(FAILED)))

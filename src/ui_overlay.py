@@ -149,17 +149,24 @@ class Overlay(QWidget):
     def mousePressEvent(self, event) -> None:
         if event.button() == Qt.LeftButton:
             self._drag = event.globalPosition().toPoint() - self.frameGeometry().topLeft()
+            self._press = event.globalPosition().toPoint()
 
     def mouseMoveEvent(self, event) -> None:
         if event.buttons() & Qt.LeftButton:
             self.move(event.globalPosition().toPoint() - self._drag)
 
     def mouseReleaseEvent(self, event) -> None:
-        if event.button() == Qt.LeftButton:   # 拖完记住位置（重启恢复）
-            try:
-                config.save({**config.load(), "overlay_x": self.x(), "overlay_y": self.y()})
-            except OSError:
-                pass    # 位置记不住是小损失，不值得打断使用（R8 针对故障可见）
+        if event.button() != Qt.LeftButton:
+            return
+        # v0.5：几乎没移动 = 左键点击 → 打开统计窗口（拖动仍走保存位置）
+        moved = (event.globalPosition().toPoint() - self._press).manhattanLength() \
+            if hasattr(self, "_press") else 999
+        try:
+            config.save({**config.load(), "overlay_x": self.x(), "overlay_y": self.y()})
+        except OSError:
+            pass    # 位置记不住是小损失，不值得打断使用（R8 针对故障可见）
+        if moved <= 6:
+            self._open_gui()
 
     def contextMenuEvent(self, event) -> None:
         menu = QMenu(self)

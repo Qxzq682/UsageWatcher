@@ -14,11 +14,10 @@ import os
 import sys
 from datetime import date, timedelta
 
-from PySide6.QtCore import QAbstractTableModel, QDate, QFileInfo, QModelIndex, QRectF, Qt, QTimer
-from PySide6.QtGui import QColor, QFont, QPainter, QPen
+from PySide6.QtCore import QAbstractTableModel, QDate, QFileInfo, QModelIndex, Qt, QTimer
 from PySide6.QtWidgets import (
     QAbstractItemView, QComboBox, QDateEdit, QFileDialog, QFileIconProvider, QHBoxLayout,
-    QHeaderView, QLabel, QMainWindow, QMessageBox, QPushButton, QTableView,
+    QHeaderView, QInputDialog, QLabel, QMainWindow, QMessageBox, QPushButton, QTableView,
     QTabWidget, QVBoxLayout, QWidget,
 )
 
@@ -26,20 +25,10 @@ import apps
 import config
 import data
 import i18n
-import track
+import ui_merge
+from ui_charts import DailyBars, StackedBar, fmt_duration
 
-COLOR_FG = QColor("#378ADD")
-COLOR_BG = QColor("#B4B2A9")
-COLOR_TEXT = QColor("#2C2C2A")
-COLOR_MUTED = QColor("#888780")
-
-
-def fmt_duration(ms: int) -> str:
-    minutes = int(ms // 60000)
-    if minutes < 60:
-        return i18n.t("dur_min", minutes)
-    return i18n.t("dur_hm", minutes // 60, minutes % 60)
-
+PERIOD_KEYS = ("today", "yesterday", "byday", "week", "month", "30d")
 
 # ---------------------------------------------------------------- CSV 导出
 
@@ -73,10 +62,6 @@ def csv_rows(rows: list) -> list:
 
 
 # ---------------------------------------------------------------- 周期计算
-
-# 业务键（英文，逻辑判断只用 key）+ 显示文案（i18n）。切换语言后逻辑不变。
-PERIOD_KEYS = ("today", "yesterday", "byday", "week", "month", "30d")
-
 
 def period_label(key: str) -> str:
     return i18n.t("period_" + key)
@@ -163,104 +148,6 @@ class RankModel(QAbstractTableModel):
         return None
 
 
-# ---------------------------------------------------------------- 手绘图
-
-class StackedBar(QWidget):
-    """各应用前/后台时长占比的横向堆叠条（QPainter 手绘）。
-
-    为什么不用 QtCharts：PySide6_Essentials 里没有 Qt6Charts.dll，
-    import 直接失败（实测）。引 PySide6-Addons 只为画条形图不划算。
-    """
-
-    def __init__(self) -> None:
-        super().__init__()
-        self.rows: list = []
-        self.setMinimumHeight(120)
-
-    def set_rows(self, rows: list) -> None:
-        self.rows = rows[:10]
-        self.setMinimumHeight(max(120, 26 * len(self.rows) + 20))
-        self.update()
-
-    def paintEvent(self, _event) -> None:
-        painter = QPainter(self)
-        painter.setRenderHint(QPainter.Antialiasing)
-        painter.fillRect(self.rect(), QColor("#FFFFFF"))
-        if not self.rows:
-            painter.setPen(QPen(COLOR_MUTED))
-            painter.drawText(self.rect(), Qt.AlignCenter, i18n.t("nodata"))
-            return
-        label_width = 130
-        right = self.width() - 70
-        bar_area = max(right - label_width, 20)
-        peak = max((r["total_ms"] for r in self.rows), default=1) or 1
-
-        for index, row in enumerate(self.rows):
-            y = 12 + index * 26
-            painter.setPen(QPen(COLOR_TEXT))
-            painter.setFont(QFont("Microsoft YaHei", 9))
-            painter.drawText(QRectF(0, y, label_width - 8, 18),
-                             int(Qt.AlignRight | Qt.AlignVCenter),
-                             _elide(row["display_name"], 12))
-            width = max(bar_area * row["total_ms"] / peak, 2)
-            fg_width = max(width * row["fg_ratio"], 0)
-            painter.fillRect(QRectF(label_width, y + 3, width, 12), COLOR_BG)
-            if fg_width > 0:
-                painter.fillRect(QRectF(label_width, y + 3, fg_width, 12), COLOR_FG)
-            painter.setPen(QPen(COLOR_MUTED))
-            painter.drawText(QRectF(label_width + width + 6, y, 62, 18),
-                             int(Qt.AlignLeft | Qt.AlignVCenter),
-                             fmt_duration(row["total_ms"]))
-        painter.end()
-
-
-class DailyBars(QWidget):
-    """近 N 天每日前/后台时长的迷你柱状图。"""
-
-    def __init__(self) -> None:
-        super().__init__()
-        self.days: list = []
-        self.setMinimumHeight(110)
-
-    def set_days(self, days: list) -> None:
-        self.days = days
-        self.update()
-
-    def paintEvent(self, _event) -> None:
-        painter = QPainter(self)
-        painter.setRenderHint(QPainter.Antialiasing)
-        painter.fillRect(self.rect(), QColor("#FFFFFF"))
-        if not self.days:
-            painter.setPen(QPen(COLOR_MUTED))
-            painter.drawText(self.rect(), Qt.AlignCenter, i18n.t("nodata"))
-            return
-        # 柱高与峰值必须用 active_ms（fg∪bg 并集口径，与统计页一致）；
-        # 用 fg+bg 相加会让柱子虚高、多日被虚高峰值整体压扁（BUG-27）
-        peak = max((d["active_ms"] for d in self.days), default=1) or 1
-        slot = self.width() / max(len(self.days), 1)
-        bar_width = min(slot * 0.5, 34)
-        base = self.height() - 20
-
-        painter.setFont(QFont("Microsoft YaHei", 8))
-        for index, day in enumerate(self.days):
-            center = slot * (index + 0.5)
-            total = day["active_ms"]
-            height = max((base - 10) * total / peak, 2)
-            fg_height = height * (day["fg_ms"] / total if total else 0)
-            painter.fillRect(QRectF(center - bar_width / 2, base - height, bar_width, height), COLOR_BG)
-            if fg_height > 0:
-                painter.fillRect(QRectF(center - bar_width / 2, base - fg_height,
-                                        bar_width, fg_height), COLOR_FG)
-            painter.setPen(QPen(COLOR_MUTED))
-            painter.drawText(QRectF(center - 24, base + 2, 48, 16),
-                             int(Qt.AlignHCenter | Qt.AlignTop), day["day"][5:])
-        painter.end()
-
-
-def _elide(text: str, limit: int) -> str:
-    return text if len(text) <= limit else text[: limit - 1] + "…"
-
-
 # ---------------------------------------------------------------- 主窗口
 
 class MainWindow(QMainWindow):
@@ -283,6 +170,8 @@ class MainWindow(QMainWindow):
         refresh.clicked.connect(self.reload)
         export = QPushButton(i18n.t("btn_export"))
         export.clicked.connect(self._export_csv)
+        monthly = QPushButton(i18n.t("btn_monthly"))
+        monthly.clicked.connect(self._export_monthly)
 
         top = QHBoxLayout()
         top.addWidget(QLabel(i18n.t("lbl_period")))
@@ -290,6 +179,7 @@ class MainWindow(QMainWindow):
         top.addWidget(self.day_pick)
         top.addWidget(refresh)
         top.addWidget(export)
+        top.addWidget(monthly)
         top.addStretch(1)
         self.summary = QLabel("")
         top.addWidget(self.summary)
@@ -303,9 +193,13 @@ class MainWindow(QMainWindow):
         self.table.horizontalHeader().setSectionResizeMode(0, QHeaderView.Stretch)
         for column in range(1, 5):
             self.table.horizontalHeader().setSectionResizeMode(column, QHeaderView.ResizeToContents)
+        self.table.setContextMenuPolicy(Qt.CustomContextMenu)
+        self.table.customContextMenuRequested.connect(self._row_menu)
 
         self.bars = StackedBar()
         self.daily = DailyBars()
+        self.daily_legend = QLabel("")
+        self.daily_legend.setTextFormat(Qt.RichText)
         # 空状态提示（R8：空也要给原因，不许只显示"暂无数据"让人猜）
         self.hint = QLabel("")
         self.hint.setStyleSheet("color:#8a6d3b; background:#fdf6e3; padding:6px 10px;")
@@ -326,10 +220,14 @@ class MainWindow(QMainWindow):
         self.daily_title = QLabel(i18n.t("daily_title"))
         stats_layout.addWidget(self.daily_title)
         stats_layout.addWidget(self.daily)
+        stats_layout.addWidget(self.daily_legend)
 
+        import ui_health
         import ui_scope
         self.tabs = QTabWidget()
         self.tabs.addTab(stats_tab, i18n.t("tab_stats"))
+        self.tabs.addTab(ui_health.HealthPage(self.store, daemon_alive=self.daemon_alive),
+                         i18n.t("tab_health"))
         self.tabs.addTab(ui_scope.ScopePage(self.store), i18n.t("tab_scope"))
         self.tabs.addTab(ui_scope.PrivacyPage(self.store), i18n.t("tab_settings"))
 
@@ -354,7 +252,9 @@ class MainWindow(QMainWindow):
         key = PERIOD_KEYS[self.period.currentIndex()]
         self.day_pick.setVisible(key == "byday")
         day_from, day_to = period_range(key, day=self._picked_day())
-        merge_map = apps.build_merge_map(self.store.app_paths())
+        self.app_paths = self.store.app_paths()
+        merge_map = apps.build_merge_map(self.app_paths,
+                                         overrides=config.load()["merge_overrides"])
         rows = self.store.app_totals(day_from, day_to, limit=config.load()["rank_limit"],
                                      merge_map=merge_map)
         summary = self.store.totals_summary(day_from, day_to)
@@ -367,6 +267,7 @@ class MainWindow(QMainWindow):
                                       quality["apps"], quality["errors"]))
         self.model.set_rows(rows)
         self.bars.set_rows(rows)
+        self._merge_map = merge_map
         # 柱状图跟随周期（BUG-7）：单日/本周只有 1~几天，单独画没有信息量，
         # 固定画目标日往前 7 天的窗口趋势；本月/近 30 天周期够长，直接跟随周期整体。
         if key in ("today", "yesterday", "byday"):
@@ -377,8 +278,22 @@ class MainWindow(QMainWindow):
             chart_from = day_from
             self.daily_title.setText(i18n.t("daily_follow",
                                             self.period.currentText()))
-        self.daily.set_days(self.store.daily_series(chart_from, day_to))
+        self.daily.set_days(self.store.daily_series(chart_from, day_to),
+                            self.store.daily_fg(chart_from, day_to, merge_map))
+        self.daily_legend.setText(i18n.t("trend_legend") + "　" + "　".join(
+            '<span style="color:%s">■</span>%s' % (color.name(), label)
+            for color, label in self.daily.legend_items()))
+        self.tabs.widget(1).sync_day(day_to)      # 数据健康页跟随止日
         self._update_hint(rows)
+
+    def _row_menu(self, pos) -> None:
+        index = self.table.indexAt(pos)
+        if not index.isValid():
+            return
+        row = self.model.rows[index.row()]
+        from PySide6.QtGui import QCursor
+        ui_merge.show_menu(self, QCursor.pos(), row, self._merge_map,
+                           self.app_paths, on_done=self.reload)
 
     def _update_hint(self, rows: list) -> None:
         """空状态必须说清原因，否则用户会以为程序坏了（实测反馈过）。"""
@@ -404,13 +319,30 @@ class MainWindow(QMainWindow):
         """
         day_from, day_to = period_range(PERIOD_KEYS[self.period.currentIndex()],
                                         day=self._picked_day())
+        self._write_csv(day_from, day_to, self.period.currentText().replace(" ", ""))
+
+    def _export_monthly(self) -> None:
+        """月度汇总自选导出（v0.5）：选月份 → 系统对话框选保存位置。"""
+        today = date.today()
+        months = [(today.replace(day=1) - timedelta(days=30 * i)).strftime("%Y-%m")
+                  for i in range(24)]
+        choice, ok = QInputDialog.getItem(self, i18n.t("monthly_title"),
+                                          i18n.t("monthly_prompt"), months, 0, False)
+        if not ok:
+            return
+        year, month = int(choice[:4]), int(choice[5:7])
+        day_from = date(year, month, 1).isoformat()
+        nxt = date(year + 1, 1, 1) if month == 12 else date(year, month + 1, 1)
+        day_to = min(nxt - timedelta(days=1), today).isoformat()
+        self._write_csv(day_from, day_to, choice)
+
+    def _write_csv(self, day_from: str, day_to: str, tag: str) -> None:
         rows = self.store.app_totals(day_from, day_to, limit=0)
         if not rows:
             QMessageBox.information(self, i18n.t("export_none_title"),
                                     i18n.t("export_none", day_from, day_to))
             return
-        period = self.period.currentText().replace(" ", "")
-        default_name = "UsageWatcher_%s_%s_%s.csv" % (period, day_from, day_to)
+        default_name = "UsageWatcher_%s_%s_%s.csv" % (tag, day_from, day_to)
         desktop = os.path.join(os.path.expanduser("~"), "Desktop")
         default_path = os.path.join(desktop if os.path.isdir(desktop) else os.path.expanduser("~"),
                                     default_name)

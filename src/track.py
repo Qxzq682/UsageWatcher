@@ -93,6 +93,37 @@ def union_ms(intervals: Iterable) -> int:
     return total + (cur_end - cur_start)
 
 
+def build_day_grid(day: str, day_start_ms: int, segs: list) -> dict:
+    """数据健康视图网格（v0.5，纯函数）：5 分钟一格标记 + 断档归因。
+
+    segs = [(kind, start_ms, end_ms, flags)]。slots 288 个：0=无记录
+    1=仅后台 2=含前台；gaps 只收覆盖窗口内 >=5 分钟的空档（更小属正常
+    采样间隔），归因看左侧片段截断 flags：FLAG_LOCK=锁屏停记、
+    FLAG_IDLE=空闲截断、否则=低活动。"""
+    step = 5 * 60 * 1000
+    slots = [0] * (86400 * 1000 // step)
+    clean = []
+    for kind, start, end, flags in segs:
+        clean.append((start, max(end, start), flags))
+        # 半开区间 [start, end)：end 恰在格边界时不侵占下一格
+        for k in range(max((start - day_start_ms) // step, 0),
+                       min((end - day_start_ms - 1) // step, len(slots) - 1) + 1):
+            slots[k] = max(slots[k], 2 if kind == "fg" else 1)
+    set_at = [i for i, v in enumerate(slots) if v]
+    gaps = []
+    if clean and set_at:
+        cover = (day_start_ms + set_at[0] * step, day_start_ms + set_at[-1] * step + step)
+        for (a_start, a_end, a_flags), (b_start, _be, _bf) in zip(clean, clean[1:]):
+            if b_start - a_end < step or a_end < cover[0] or b_start > cover[1]:
+                continue
+            reason = ("lock" if a_flags & config.FLAG_LOCK else
+                      "idle" if a_flags & config.FLAG_IDLE else "quiet")
+            gaps.append({"start_ms": a_end, "end_ms": b_start, "reason": reason})
+    return {"day": day, "slots": slots, "gaps": gaps,
+            "first_ms": day_start_ms + set_at[0] * step if set_at else 0,
+            "last_ms": day_start_ms + (set_at[-1] + 1) * step if set_at else 0}
+
+
 # ---------------------------------------------------------------- 前台追踪
 
 

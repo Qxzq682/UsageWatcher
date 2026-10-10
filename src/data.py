@@ -15,7 +15,6 @@ import track
 
 RECHECK_PENDING = "待重新检测，等待下次采样"
 
-
 class _LockedConnection:
     """给 sqlite3 连接套锁实现跨线程安全（实测：主线程建、工作线程用会
     ProgrammingError 且采集链静默失效）。check_same_thread=False + 这把锁，
@@ -246,14 +245,10 @@ class Store:
     def app_totals(self, day_from: str, day_to: str, limit: int = 0,
                    merge_map: Optional[dict] = None) -> List[dict]:
         """周期内每个应用的前台/后台/活跃总时长，全部用区间并集：同类多进程
-        区间重叠、前台与后台也重叠，total 是 fg∪bg 大并集而非相加
-        （相加实测虚高过 80%）。
-
-        merge_map（v0.4）：{app_key: 组显示名}，由 apps.build_merge_map 生成。
-        命中的应用按**组**重新做并集聚合 —— 归并不只是改显示名：多进程家族
-        （鸣潮本体+启动器、微信+内嵌浏览器）的后台区间会互相重叠，必须把
-        组内所有成员的区间放在一起算大并集，否则组的时长是各成员相加的虚高值。
-        """
+        区间重叠、前台与后台也重叠，total 是 fg∪bg 大并集而非相加（虚高过 80%）。
+        merge_map（v0.4）：{app_key: 组显示名}。归并不只改显示名 —— 多进程家族
+        （鸣潮本体+启动器、微信+内嵌浏览器）的后台区间互相重叠，必须把组内
+        所有成员的区间放一起算大并集，否则组的时长是各成员相加的虚高值。"""
         grouped = self._intervals(day_from, day_to)
         meta = {
             int(r["app_id"]): r for r in self.conn.execute(
@@ -316,7 +311,6 @@ class Store:
                 "first_ms": int(row["a"] or 0), "last_ms": int(row["b"] or 0),
                 "errors": err}
 
-
     def daily_series(self, day_from: str, day_to: str) -> List[dict]:
         """按天序列（近 N 天迷你柱状图）；active_ms = 当天 fg∪bg 并集。"""
         rows = self.conn.execute(
@@ -334,6 +328,44 @@ class Store:
         for entry in per_day.values():   # fg∪bg 大并集（不分 kind）
             entry["active_ms"] = track.union_ms(entry.pop("_spans"))
         return [per_day[d] for d in sorted(per_day)]
+
+    def day_grid(self, day: str) -> dict:
+        """数据健康视图（v0.5）：取当天片段交给 track.build_day_grid 算网格。"""
+        try:
+            day_start = int(time.mktime(time.strptime(day, "%Y-%m-%d"))) * 1000
+        except (ValueError, OverflowError):
+            return {"day": day, "slots": [], "gaps": [], "first_ms": 0, "last_ms": 0}
+        rows = self.conn.execute(
+            "SELECT kind, start_ms, end_ms, flags FROM segment WHERE day = ?"
+            " ORDER BY start_ms", (day,)).fetchall()
+        return track.build_day_grid(day, day_start,
+                                    [(str(r["kind"]), int(r["start_ms"]),
+                                      int(r["end_ms"]), int(r["flags"])) for r in rows])
+
+    def daily_fg(self, day_from: str, day_to: str, merge_map: Optional[dict] = None) -> dict:
+        """每天 × 应用组的前台并集时长（v0.5 Top5 趋势）：{day: {组名: fg_ms}}。
+        只取前台 —— 前台天然互斥可安全跨应用堆叠；后台共存，堆叠会重复计高
+        （BUG-27 同族坑）。归并组沿用 merge_map 组名聚合。"""
+        mmap = merge_map or {}
+        meta = {int(r["app_id"]): (str(r["app_key"]), str(r["display_name"] or ""),
+                                   str(r["exe_name"] or ""))
+                for r in self.conn.execute(
+                    "SELECT app_id, app_key, display_name, exe_name FROM app").fetchall()}
+        out: dict = {}
+        for row in self.conn.execute(
+                "SELECT day, app_id, start_ms, end_ms FROM segment"
+                " WHERE day BETWEEN ? AND ? AND kind = 'fg' ORDER BY day",
+                (day_from, day_to)).fetchall():
+            info = meta.get(int(row["app_id"]))
+            if not info:
+                continue
+            label = mmap.get(info[0]) or info[1] or info[2] or info[0]
+            out.setdefault(str(row["day"]), {}).setdefault(label, []).append(
+                (int(row["start_ms"]), int(row["end_ms"])))
+        for day in out:
+            for label, spans in out[day].items():
+                out[day][label] = track.union_ms(spans)
+        return out
 
     def totals_summary(self, day_from: str, day_to: str) -> dict:
         series = self.daily_series(day_from, day_to)
