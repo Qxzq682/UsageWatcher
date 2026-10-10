@@ -50,8 +50,9 @@ _T = {
                         "%s – %s  screen lock pause (by design)"),
     "health_gap_idle": ("%s – %s　空闲截断（人不在电脑前，前台挂着的窗口不计时长）",
                         "%s – %s  idle cutoff (away from keyboard)"),
-    "health_gap_quiet": ("%s – %s　低活动（采样在跑，但进程没有达标活动）",
-                         "%s – %s  low activity (sampling ran, no qualifying activity)"),
+    "health_gap_quiet": ("%s – %s　低活动或未记录（采样在跑，但无达标活动，或该应用未被监测）",
+                         "%s – %s  low activity or untracked (sampling ran, no qualifying "
+                         "activity, or the app is not monitored)"),
     "health_verdict_ok": ("　数据可信。", " Data looks healthy."),
     "health_verdict_errors": ("　当天有 %d 次采集错误，时长可能偏低。",
                               " %d collection errors — totals may be low."),

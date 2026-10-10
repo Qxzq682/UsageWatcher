@@ -316,3 +316,23 @@
 - 真库复验：10-06 "Move or Die 67.6 分钟" 与诊断预测一致；全库 7 个 Steam 游戏
   各自成组零误合（BlackMythWukong/Cyberpunk 2077/Stardew Valley…显示名顺带全部
   升级为游戏目录名）。selftest 167 项（+4 steam 断言）、audit 9/9、GUI smoke rc=0。
+
+### [0.5.2] - 2026-10-10
+
+外部检测报告（第 9 轮，D:/dsh/UsageWatcher-v0.5.0-缺陷检测报告.md）四项发现的处置。
+报告结论"四个新功能实测无缺陷"经本会话确认采纳。
+
+- **D1 版本标签滞后（第 3 次出现）→ 根治**：README/BUG反馈模板 停在 v0.3.1、
+  说明文档停在 v0.4.0；且发现报告没提的一层——love.exe 修复后 CHANGELOG 已有
+  [0.5.1] 但 APP_VERSION 仍是 0.5.0。收敛为 APP_VERSION=0.5.2，三文档同步，
+  **selftest 新增 [44] 一致性断言**（v{APP_VERSION} 必须出现在三个文档里），
+  第 4 次不可能发生。
+- **D2 members_of 同名误认 → 修复**：原按显示名反查组成员，未归并应用的原始
+  产品名恰与组名同名时会误把整组拖进合并操作。改为按行的 app_key 精确判定
+  （组代表成员必在 merge_map 内）；selftest 新增 [45] 误认场景断言。
+- **D3 build_day_grid 输入有序契约 → 兜底**：docstring 写明"必须按 start_ms
+  升序"，函数内排序一次防未来调用方忘排序（selftest [41] 全过验证无行为变化）。
+- **§4 "低活动"文案 → 修正**：断档也可能是"在用的应用未被监测"，措辞改
+  "低活动或未记录（采样在跑，但无达标活动，或该应用未被监测）"（中英双语）。
+
+selftest 172 项（+5）、audit 9/9、test_arch 全绿、GUI smoke rc=0。

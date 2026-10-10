@@ -23,6 +23,7 @@ import collect   # noqa: E402
 import config    # noqa: E402
 import data      # noqa: E402
 import track     # noqa: E402
+import ui_merge  # noqa: E402
 import winutil   # noqa: E402
 
 PASSED = 0
@@ -1028,6 +1029,29 @@ def test_steam_root() -> None:
           "z" not in apps.build_merge_map({"z": (r"D:\Tools\edit.exe", "edit.exe")}))
 
 
+def test_doc_version_sync() -> None:
+    print("\n[44] 文档版本标签与 APP_VERSION 一致（D1 固化，连漏三轮）")
+    root = os.path.join(os.path.dirname(os.path.abspath(__file__)), "..")
+    for name in ("README.md", "BUG反馈模板.md", "说明文档.md"):
+        path = os.path.join(root, name)
+        text = open(path, encoding="utf-8").read() if os.path.exists(path) else ""
+        check("%s 含当前版本号 v%s" % (name, config.APP_VERSION),
+              ("v" + config.APP_VERSION) in text, name)
+
+
+def test_members_of_no_misread() -> None:
+    print("\n[45] members_of 按 app_key 精确判定（D2：防同名误认成组）")
+    mmap = {"k1": (r"D:\Soft\MyApp\bin\a.exe", "a.exe"),
+            "k2": (r"D:\Soft\MyApp\bin\b.exe", "b.exe")}
+    mmap_disp = {k: "MyApp" for k in mmap}
+    group_row = {"app_key": "k1", "display_name": "MyApp"}
+    check("组行返回全部成员", ui_merge.members_of(group_row, mmap_disp) == ["k1", "k2"])
+    # 误认场景：未归并应用的原始产品名恰与组名同名
+    solo_row = {"app_key": r"d:\other\myapp.exe", "display_name": "MyApp"}
+    check("未归并应用同名时不误认成组（返回自己）",
+          ui_merge.members_of(solo_row, mmap_disp) == [solo_row["app_key"]])
+
+
 def main() -> int:
     print("=" * 68)
     print(" 自测：纯逻辑回归 + 安全红线")
@@ -1072,6 +1096,8 @@ def main() -> int:
     test_day_grid()
     test_daily_fg()
     test_steam_root()
+    test_doc_version_sync()
+    test_members_of_no_misread()
 
     print("\n" + "=" * 68)
     print("通过 %d 项，失败 %d 项" % (PASSED, len(FAILED)))
