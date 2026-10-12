@@ -29,6 +29,7 @@ import config          # noqa: E402
 import data            # noqa: E402
 import i18n            # noqa: E402
 import winutil         # noqa: E402
+from ui_charts import apply_style, fmt_duration   # noqa: E402
 
 _MUTEX = "Local\\UsageWatcher_Overlay_"
 _mutex_handles: list = []
@@ -105,7 +106,8 @@ class Overlay(QWidget):
                                + (winutil.current_user_sid() or "x")):
             self.missed = 0
             self._alive = True
-            self._today = self.store.totals_summary(*_today_iso())
+            day = time.strftime("%Y-%m-%d")
+            self._today = self.store.totals_summary(day, day)
         else:
             self.missed += 1
             self._alive = False
@@ -136,7 +138,7 @@ class Overlay(QWidget):
         p.setPen(QPen(QColor("#63D19E" if self._alive else "#9AA7AD")))
         p.setFont(QFont("Microsoft YaHei", 13, QFont.Bold))
         p.drawText(self.rect().adjusted(12, 20, -12, -4), Qt.AlignLeft,
-                   _fmt(self._today["total_ms"]))
+                   fmt_duration(self._today["total_ms"]))
         p.setPen(QPen(QColor("#8FA6B0")))
         p.setFont(QFont("Microsoft YaHei", 7))
         p.drawText(self.rect().adjusted(12, 44, -8, -2), Qt.AlignLeft,
@@ -191,21 +193,10 @@ class Overlay(QWidget):
         event.accept()
 
 
-def _today_iso() -> tuple:
-    day = time.strftime("%Y-%m-%d")
-    return day, day
-
-
-def _fmt(ms: int) -> str:
-    m = int(ms // 60000)
-    return i18n.t("dur_min", m) if m < 60 else i18n.t("dur_hm", m // 60, m % 60)
-
-
 def restore_if_enabled() -> None:
     """偏好开了悬浮窗且它没在跑 → 顺手拉起（重启后由打开统计窗口恢复，v0.3）。
     只探测互斥体（winutil.mutex_alive），绝不在 GUI 进程里创建
     overlay 的互斥体 —— 否则真悬浮窗启动时会误判"已有实例"而自杀。"""
-    import winutil
     if not config.load().get("overlay_enabled"):
         return
     alive = winutil.mutex_alive("Local\\UsageWatcher_Overlay_"
@@ -216,6 +207,7 @@ def restore_if_enabled() -> None:
 
 def run() -> int:
     app = QApplication.instance() or QApplication(sys.argv)
+    apply_style(app)
     window = Overlay()
     window.show()
     return app.exec()

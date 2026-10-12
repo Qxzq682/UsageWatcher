@@ -28,7 +28,11 @@ MAX_FILES = 18           # v0.5 经作者同意 15→18（+ui_charts/ui_health/u
 # v0.4 开工时经作者同意 2800→3000（应用归类引擎+预设/数据质量条/锁屏语义等，09-30 拍板）
 # v0.5 开工时经作者同意 3000→3350（右键合并 UI/数据健康/Top5 趋势/月度导出，
 #      Q 令"按需放宽，结束后精修"——v0.6 精修阶段的目标是收回来）
-MAX_CODE_LINES = 3350
+# v0.6 收紧 3350→3250（精修实录：隐私说明 HTML 出 Python 化 -72、样式表出 Python
+#      化（assets 资源，不占配额）、采集/存储/UI 重复实现去重 -40 余行；
+#      同时新增自身进程显示名与资源加载 ~+20。3279→3226 实测，
+#      再往下砍只剩伤可读性的选项，3200 目标顺延 v0.7 顺手收）
+MAX_CODE_LINES = 3250
 # 阈值必须只在 config.py 定义一次，其它模块只许用 config.XXX 访问
 UI_FORBIDDEN = ("sqlite3", "select ", "insert ", "update ", "delete from",
                 ".execute(", ".executemany(", ".executescript(")

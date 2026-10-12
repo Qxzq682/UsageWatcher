@@ -7,8 +7,10 @@
 a = Analysis(
     ['src\\app.py'],
     pathex=['src'],
-    binaries=[],
-    datas=[],
+    # v0.6：全局样式表与双语言隐私说明是运行时资源（ui_charts.asset_path 定位）
+    datas=[('assets\\style.qss', 'assets'),
+           ('assets\\privacy_zh.html', 'assets'),
+           ('assets\\privacy_en.html', 'assets')],
     # ui_main/ui_scope/ui_overlay 是函数内 import（守护模式永不加载 Qt），
     # pycaw 是 audio.py 函数内 import —— 显式声明防漏收
     hiddenimports=['ui_main', 'ui_scope', 'ui_overlay', 'pycaw.pycaw'],

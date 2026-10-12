@@ -15,6 +15,11 @@ import track
 
 RECHECK_PENDING = "待重新检测，等待下次采样"
 
+
+def _day_start_ms(day: str) -> int:
+    """本地某天 00:00 的 epoch 毫秒；解析失败抛 ValueError，由调用方降级。"""
+    return int(time.mktime(time.strptime(day, "%Y-%m-%d"))) * 1000
+
 class _LockedConnection:
     """给 sqlite3 连接套锁实现跨线程安全（实测：主线程建、工作线程用会
     ProgrammingError 且采集链静默失效）。check_same_thread=False + 这把锁，
@@ -231,16 +236,10 @@ class Store:
 
     # ------------------------------------------------------------ 查询
 
-    def _intervals(self, day_from: str, day_to: str) -> dict:
-        """取出区间，按 (app_id, kind) 分组。"""
-        rows = self.conn.execute(
-            "SELECT app_id, kind, start_ms, end_ms FROM segment WHERE day BETWEEN ? AND ?",
-            (day_from, day_to)).fetchall()
-        grouped: dict = {}
-        for row in rows:
-            grouped.setdefault((int(row["app_id"]), str(row["kind"])), []).append(
-                (int(row["start_ms"]), int(row["end_ms"])))
-        return grouped
+    def _app_meta(self) -> dict:
+        """{app_id: Row}，Row 含 app_key/display_name/exe_name/exe_path（查询共用）。"""
+        return {int(r["app_id"]): r for r in self.conn.execute(
+            "SELECT app_id, app_key, display_name, exe_name, exe_path FROM app").fetchall()}
 
     def app_totals(self, day_from: str, day_to: str, limit: int = 0,
                    merge_map: Optional[dict] = None) -> List[dict]:
@@ -249,27 +248,25 @@ class Store:
         merge_map（v0.4）：{app_key: 组显示名}。归并不只改显示名 —— 多进程家族
         （鸣潮本体+启动器、微信+内嵌浏览器）的后台区间互相重叠，必须把组内
         所有成员的区间放一起算大并集，否则组的时长是各成员相加的虚高值。"""
-        grouped = self._intervals(day_from, day_to)
-        meta = {
-            int(r["app_id"]): r for r in self.conn.execute(
-                "SELECT app_id, app_key, display_name, exe_name, exe_path FROM app").fetchall()
-        }
+        rows = self.conn.execute(
+            "SELECT app_id, kind, start_ms, end_ms FROM segment WHERE day BETWEEN ? AND ?",
+            (day_from, day_to)).fetchall()
+        grouped: dict = {}
+        for row in rows:
+            grouped.setdefault((int(row["app_id"]), str(row["kind"])), []).append(
+                (int(row["start_ms"]), int(row["end_ms"])))
+        meta = self._app_meta()
         mmap = merge_map or {}
         group_names = set(mmap.values())
-
-        def group_of(app_id: int) -> Optional[str]:
-            row = meta.get(app_id)
-            if row is None:
-                return None
-            return mmap.get(str(row["app_key"])) or ("id:%d" % app_id)
 
         totals: dict = {}
         union_spans: dict = {}
         member: dict = {}      # 组 -> 组内第一个 app_id（展示元数据的代表行）
         for (app_id, kind), spans in grouped.items():
-            g = group_of(app_id)
-            if g is None:
+            row = meta.get(app_id)
+            if row is None:
                 continue
+            g = mmap.get(str(row["app_key"])) or ("id:%d" % app_id)
             entry = totals.setdefault(g, {"fg_ms": 0, "bg_ms": 0})
             entry["fg_ms" if kind == "fg" else "bg_ms"] += track.union_ms(spans)
             union_spans.setdefault(g, []).extend(spans)
@@ -301,7 +298,7 @@ class Store:
             "SELECT COUNT(*) n, COUNT(DISTINCT app_id) apps, MIN(start_ms) a, MAX(end_ms) b"
             " FROM segment WHERE day = ?", (day,)).fetchone()
         try:
-            day_start = int(time.mktime(time.strptime(day, "%Y-%m-%d"))) * 1000
+            day_start = _day_start_ms(day)
             err = int(self.conn.execute(
                 "SELECT COUNT(*) n FROM event WHERE type LIKE '%error%' AND ts_ms >= ?",
                 (day_start,)).fetchone()["n"])
@@ -332,7 +329,7 @@ class Store:
     def day_grid(self, day: str) -> dict:
         """数据健康视图（v0.5）：取当天片段交给 track.build_day_grid 算网格。"""
         try:
-            day_start = int(time.mktime(time.strptime(day, "%Y-%m-%d"))) * 1000
+            day_start = _day_start_ms(day)
         except (ValueError, OverflowError):
             return {"day": day, "slots": [], "gaps": [], "first_ms": 0, "last_ms": 0}
         rows = self.conn.execute(
@@ -347,19 +344,18 @@ class Store:
         只取前台 —— 前台天然互斥可安全跨应用堆叠；后台共存，堆叠会重复计高
         （BUG-27 同族坑）。归并组沿用 merge_map 组名聚合。"""
         mmap = merge_map or {}
-        meta = {int(r["app_id"]): (str(r["app_key"]), str(r["display_name"] or ""),
-                                   str(r["exe_name"] or ""))
-                for r in self.conn.execute(
-                    "SELECT app_id, app_key, display_name, exe_name FROM app").fetchall()}
+        meta = self._app_meta()
         out: dict = {}
         for row in self.conn.execute(
                 "SELECT day, app_id, start_ms, end_ms FROM segment"
                 " WHERE day BETWEEN ? AND ? AND kind = 'fg' ORDER BY day",
                 (day_from, day_to)).fetchall():
-            info = meta.get(int(row["app_id"]))
-            if not info:
+            meta_row = meta.get(int(row["app_id"]))
+            if meta_row is None:
                 continue
-            label = mmap.get(info[0]) or info[1] or info[2] or info[0]
+            key = str(meta_row["app_key"])
+            label = mmap.get(key) or str(meta_row["display_name"] or "") \
+                or str(meta_row["exe_name"] or "") or key
             out.setdefault(str(row["day"]), {}).setdefault(label, []).append(
                 (int(row["start_ms"]), int(row["end_ms"])))
         for day in out:

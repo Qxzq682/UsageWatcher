@@ -24,6 +24,7 @@ from PySide6.QtWidgets import (
 import config
 import i18n
 import winutil
+from ui_charts import asset_path
 
 LEVEL_COLOR = {"yes": QColor("#3B6D11"), "partial": QColor("#854F0B"), "no": QColor("#A32D2D")}
 
@@ -312,8 +313,14 @@ class PrivacyPage(QWidget):
         QDesktopServices.openUrl(QUrl.fromLocalFile(str(config.data_dir())))
 
     def _html(self) -> str:
-        # 模板里数据目录出现两处（%s ×2）
-        return i18n.t("privacy_html") % (config.data_dir(), config.data_dir())
+        """隐私说明按当前语言从 assets 读取（资源而非代码，v0.6）；%s ×2 = 数据目录。
+        读失败显示占位说明而不是崩设置页（R8：资源缺失可见、功能不炸）。"""
+        name = "privacy_en.html" if i18n.current() == "en" else "privacy_zh.html"
+        try:
+            text = asset_path(name).read_text(encoding="utf-8")
+        except OSError:
+            text = "<p>privacy notes asset missing — reinstall the app.</p>"
+        return text % (config.data_dir(), config.data_dir())
 
     def _clear(self) -> None:
         answer = QMessageBox.question(

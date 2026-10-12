@@ -26,7 +26,7 @@ import config
 import data
 import i18n
 import ui_merge
-from ui_charts import DailyBars, StackedBar, fmt_duration
+from ui_charts import DailyBars, StackedBar, apply_style, fmt_duration
 
 PERIOD_KEYS = ("today", "yesterday", "byday", "week", "month", "30d")
 
@@ -62,10 +62,6 @@ def csv_rows(rows: list) -> list:
 
 
 # ---------------------------------------------------------------- 周期计算
-
-def period_label(key: str) -> str:
-    return i18n.t("period_" + key)
-
 
 def period_range(key: str, day=None) -> tuple:
     """周期 key → (起日, 止日) ISO 串。day 是"按日"模式的指定日期（date 对象），
@@ -159,7 +155,7 @@ class MainWindow(QMainWindow):
         self.resize(920, 620)
 
         self.period = QComboBox()
-        self.period.addItems([period_label(k) for k in PERIOD_KEYS])
+        self.period.addItems([i18n.t("period_" + k) for k in PERIOD_KEYS])
         self.day_pick = QDateEdit()            # "按日"模式的日期选择（带日历弹窗）
         self.day_pick.setCalendarPopup(True)
         self.day_pick.setDisplayFormat("yyyy-MM-dd")
@@ -187,6 +183,7 @@ class MainWindow(QMainWindow):
         self.model = RankModel()
         self.table = QTableView()
         self.table.setModel(self.model)
+        self.table.setAlternatingRowColors(True)
         self.table.setSelectionBehavior(QAbstractItemView.SelectRows)
         self.table.setEditTriggers(QAbstractItemView.NoEditTriggers)
         self.table.verticalHeader().setVisible(False)
@@ -362,6 +359,7 @@ def run(smoke: bool = False, daemon_alive=None) -> int:
     from PySide6.QtWidgets import QApplication
 
     app = QApplication.instance() or QApplication(sys.argv)
+    apply_style(app)
     store = data.Store()
     import ui_overlay
     ui_overlay.restore_if_enabled()

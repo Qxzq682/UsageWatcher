@@ -7,6 +7,10 @@
 
 from __future__ import annotations
 
+import os
+import sys
+from pathlib import Path
+
 from PySide6.QtCore import QRectF, Qt
 from PySide6.QtGui import QColor, QFont, QPainter, QPen
 from PySide6.QtWidgets import QWidget
@@ -20,6 +24,23 @@ COLOR_MUTED = QColor("#888780")
 
 # Top5 趋势调色板：按名次取色（名次在周期内全局排名，颜色跟着应用走）
 TREND_COLORS = ("#378ADD", "#5DCAA5", "#EF9F27", "#D4537E", "#7F77DD")
+
+
+def asset_path(name: str) -> Path:
+    """资源文件定位：源码运行 = 项目根/assets；打包运行 = 解包目录/assets。
+    样式表与隐私说明是资源而非 Python 实现，放 assets 不占代码配额。"""
+    base = getattr(sys, "_MEIPASS", None) \
+        or os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
+    return Path(base) / "assets" / name
+
+
+def apply_style(app) -> None:
+    """给 QApplication 挂全局 QSS；缺失/读失败跳过（样式不致命，
+    资源完整性由 selftest 断言兜底）。"""
+    try:
+        app.setStyleSheet(asset_path("style.qss").read_text(encoding="utf-8"))
+    except OSError:
+        pass
 
 
 def fmt_duration(ms: int) -> str:

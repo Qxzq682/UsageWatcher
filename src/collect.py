@@ -125,15 +125,10 @@ class FgWatcher:
                 return out
 
     def samples(self) -> List[Sample]:
-        """取事件样本供消费；空闲闩合上时事件照收但不判前台。
-
-        人已离开，期间 toast/弹窗抢到的前台不算"使用"（BUG-32），
-        丢弃即可——恢复输入后轮询会重新上报真实前台。
-        """
-        if self.idle_cut:
-            self.drain()
-            return []
-        return self.drain()
+        """取事件样本供消费；空闲闩合上时事件照收但丢弃 —— 人已离开，期间
+        toast/弹窗抢到的前台不算"使用"（BUG-32），恢复输入后轮询会重新上报。"""
+        out = self.drain()
+        return [] if self.idle_cut else out
 
     def install(self) -> bool:
         self._proc = _WinEventProc(self._callback)

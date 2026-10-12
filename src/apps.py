@@ -10,12 +10,24 @@ from __future__ import annotations
 
 import os
 import re
+import sys
 import time
 from dataclasses import dataclass
 from typing import Optional
 
 import config
 import winutil
+
+# 本程序自身的 exe 路径（小写）。统计窗口宿主是 pythonw.exe（源码运行时），
+# 它占前台时若按版本资源显示，列表里会出现无意义的 "pythonw.exe"（v0.6 瑕疵1）。
+# 命中自己时改用产品名。按完整路径匹配，用户自己的其它 Python 脚本不受影响；
+# 打包版 exe 的版本资源本就是产品名，判定恒False 于他人、命中也无害。
+_OWN_EXE = os.path.abspath(sys.executable).lower()
+
+
+def is_own_exe(path: str) -> bool:
+    """该 exe 路径是否为本程序自身（纯函数，便于回归）。"""
+    return bool(path) and os.path.abspath(path).lower() == _OWN_EXE
 
 # ---------------------------------------------------------------- 契约
 
@@ -335,12 +347,15 @@ class Resolver:
             info = self._by_key.get(key)
             if info is None:
                 raw = winutil.file_version_info(path)
+                fallback = sanitize(os.path.basename(path))
+                own = key == _OWN_EXE
                 info = AppInfo(
                     app_key=key,
                     exe_path=sanitize(path),
                     exe_name=sanitize(os.path.basename(path)),
-                    display_name=sanitize(raw.get("display_name")) or sanitize(os.path.basename(path)),
-                    version=sanitize(raw.get("version")),
+                    display_name=config.APP_NAME if own
+                    else (sanitize(raw.get("display_name")) or fallback),
+                    version=config.APP_VERSION if own else sanitize(raw.get("version")),
                     publisher=sanitize(raw.get("publisher")),
                 )
                 self._by_key[key] = info

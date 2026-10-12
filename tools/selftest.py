@@ -735,18 +735,15 @@ def test_overlay_prefs() -> None:
     check("overlay.flag 落在用户数据目录（与 stop.flag 同一套零 IPC 思路）",
           config.overlay_flag_path().parent == config.data_dir()
           and config.overlay_flag_path().name == "overlay.flag")
-    today = track.day_of(int(time.time() * 1000))
-    check("_today_iso 返回今天（ISO 串）",
-          ui_overlay._today_iso() == (today, today), str(ui_overlay._today_iso()))
-    check("_fmt 分钟/小时格式与 i18n 一致",
-          ui_overlay._fmt(0) == i18n.t("dur_min", 0)
-          and ui_overlay._fmt(90 * 60_000) == i18n.t("dur_hm", 1, 30),
-          "%s / %s" % (ui_overlay._fmt(0), ui_overlay._fmt(90 * 60_000)))
+    check("_fmt 分钟/小时格式与 i18n 一致（v0.6 起悬浮窗复用 ui_charts.fmt_duration）",
+          ui_overlay.fmt_duration(0) == i18n.t("dur_min", 0)
+          and ui_overlay.fmt_duration(90 * 60_000) == i18n.t("dur_hm", 1, 30),
+          "%s / %s" % (ui_overlay.fmt_duration(0), ui_overlay.fmt_duration(90 * 60_000)))
     check("悬浮窗互斥体名含 Local 前缀（单会话不跨用户）",
           ui_overlay._MUTEX.startswith("Local\\"))
-    import app
-    check("GUI 唤起对不存在的窗口安静返回（BUG-35：最小化后双击无反应）",
-          app._revive_gui_window("不存在的标题XYZ") is None)
+    import winutil
+    check("GUI 唤起对不存在的窗口安静返回 False（BUG-35：最小化后双击无反应）",
+          winutil.revive_window("不存在的标题XYZ") is False)
     cfg0 = config.load()
     try:
         config.save({**cfg0, "overlay_x": 123, "overlay_y": 456})
@@ -1052,6 +1049,29 @@ def test_members_of_no_misread() -> None:
           ui_merge.members_of(solo_row, mmap_disp) == [solo_row["app_key"]])
 
 
+def test_own_exe_and_assets() -> None:
+    print("\n[46] 自身进程显示名 + 运行时资源完整性（v0.6）")
+    import os
+    check("is_own_exe 命中本进程解释器路径",
+          apps.is_own_exe(sys.executable) is True, sys.executable)
+    check("is_own_exe 不误伤他人路径（大小写/相对路径也判 False）",
+          apps.is_own_exe(r"C:\Other\pythonw.exe") is False
+          and apps.is_own_exe("") is False)
+    from ui_charts import asset_path
+    for name in ("style.qss", "privacy_zh.html", "privacy_en.html"):
+        path = asset_path(name)
+        check("资源存在且非空：%s" % name,
+              path.is_file() and path.stat().st_size > 100, str(path))
+    qss = asset_path("style.qss").read_text(encoding="utf-8")
+    check("style.qss 覆盖核心控件（页签/按钮/表格/滚动条）",
+          all(token in qss for token in
+              ("QTabBar::tab", "QPushButton", "QTableView", "QScrollBar")))
+    for name in ("privacy_zh.html", "privacy_en.html"):
+        text = asset_path(name).read_text(encoding="utf-8")
+        check("%s 含两个数据目录占位符且无裸百分号" % name,
+              text.count("%s") == 2 and not __import__("re").search(r"%(?!s)", text))
+
+
 def main() -> int:
     print("=" * 68)
     print(" 自测：纯逻辑回归 + 安全红线")
@@ -1098,6 +1118,7 @@ def main() -> int:
     test_steam_root()
     test_doc_version_sync()
     test_members_of_no_misread()
+    test_own_exe_and_assets()
 
     print("\n" + "=" * 68)
     print("通过 %d 项，失败 %d 项" % (PASSED, len(FAILED)))

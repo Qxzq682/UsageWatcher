@@ -1,0 +1,35 @@
+<h3>What this program collects</h3>
+<table border="1" cellspacing="0" cellpadding="4">
+  <tr><th>Field</th><th>Purpose</th><th>Stored?</th></tr>
+  <tr><td>Foreground window handle &rarr; process ID</td><td>Which app is in front</td><td>No (transient)</td></tr>
+  <tr><td>Full path of the executable</td><td>Identify the app</td><td>Yes</td></tr>
+  <tr><td>Version resource: product / version / publisher</td><td>Readable names</td><td>Yes</td></tr>
+  <tr><td>Process CPU time, disk I/O bytes</td><td>Real background activity</td><td>No (diff only)</td></tr>
+  <tr><td>Milliseconds since last input</td><td>Idle down-clocking</td><td>No</td></tr>
+  <tr><td>Timestamps (start/end)</td><td>Compute durations</td><td>Yes</td></tr>
+</table>
+
+<h3>Never collected</h3>
+<ul>
+  <li>Window titles, control text</li><li>URLs / page content</li><li>Chat content</li>
+  <li>Keyboard input</li><li>Mouse trails</li><li>Clipboard</li><li>Screenshots / recording</li>
+  <li>File contents and names (except the exe's own path)</li>
+  <li>Browser history / bookmarks / passwords</li><li>Microphone / camera</li>
+  <li>Network traffic content</li><li>Account / machine name / IP / location</li>
+  <li>Any telemetry or crash reporting</li>
+</ul>
+
+<h3>Where data lives</h3>
+<p><code>%s</code><br>
+Only this folder (your private per-user folder) is written; the program folder
+is never written, and no system settings or registry entries are modified
+(auto-start is off by default and needs your explicit opt-in).</p>
+
+<h3>No network</h3>
+<p>This program <b>contains no networking code</b>, listens on no port and
+uploads nothing. Verify it yourself: run <code>tools\audit.py</code> &mdash; it scans
+the source for network calls and checks whether this process is listening.</p>
+
+<h3>How to delete everything</h3>
+<p>Click "Clear all data" below; or simply delete the whole folder
+<code>%s</code>.</p>
