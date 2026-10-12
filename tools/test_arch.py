@@ -34,7 +34,9 @@ MAX_FILES = 18           # v0.5 经作者同意 15→18（+ui_charts/ui_health/u
 #      再往下砍只剩伤可读性的选项，3200 目标顺延 v0.7 顺手收）
 # v0.6.1 Q 追加深色主题+对比度修正 3250→3265（实测 3263：双主题色表/画笔取色/
 #      设置页开关/悬浮窗 _fmt 漏改修复，净 +37，已尽力压缩 -9；3200 收拢仍顺延 v0.7）
-MAX_CODE_LINES = 3265
+# v0.6.2 修系统深色模式白底白字 3265→3270（实测 3270：apply_style 强制
+#      colorScheme 跟随主题 +7，QSS 显式 color 全覆盖；3200 收拢仍顺延 v0.7）
+MAX_CODE_LINES = 3270
 # 阈值必须只在 config.py 定义一次，其它模块只许用 config.XXX 访问
 UI_FORBIDDEN = ("sqlite3", "select ", "insert ", "update ", "delete from",
                 ".execute(", ".executemany(", ".executescript(")

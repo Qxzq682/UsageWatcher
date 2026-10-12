@@ -49,8 +49,18 @@ def asset_path(name: str) -> Path:
 
 
 def apply_style(app) -> None:
-    """给 QApplication 挂全局 QSS（按 config.dark_mode 选深/浅样式表）；
-    缺失/读失败跳过（样式不致命，资源完整性由 selftest 断言兜底）。"""
+    """给 QApplication 挂全局 QSS（按 config.dark_mode 选深/浅样式表）。
+    同时强制 Qt colorScheme 跟随所选主题 —— 否则系统深色模式下 Qt 给
+    深色调色板（文字=白），QSS 又铺白底，未写显式 color 的控件全部白底白字
+    （v0.6.1 实测 BUG：按钮/勾选框/日期框/隐私表格文字整体消失）。
+    读失败跳过（样式不致命，资源完整性由 selftest 断言兜底）。"""
+    try:
+        from PySide6.QtCore import Qt
+        scheme = Qt.ColorScheme.Dark if config.load().get("dark_mode") \
+            else Qt.ColorScheme.Light
+        app.styleHints().setColorScheme(scheme)
+    except Exception:            # noqa: BLE001 —— 旧版 Qt 无此 API，跳过不致命
+        pass
     try:
         name = "style_dark.qss" if config.load().get("dark_mode") else "style.qss"
         app.setStyleSheet(asset_path(name).read_text(encoding="utf-8"))
