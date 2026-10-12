@@ -16,12 +16,20 @@ from PySide6.QtWidgets import (QDateEdit, QHBoxLayout, QLabel, QPushButton,
                                QVBoxLayout, QWidget)
 
 import i18n
-from ui_charts import COLOR_MUTED, fmt_duration
+import ui_charts
 
 _SLOT_W_MS = 5 * 60 * 1000
-_COLORS = {0: QColor("#EDEBE4"), 1: QColor("#B4B2A9"), 2: QColor("#378ADD")}
-_GAP_COLORS = {"lock": QColor("#E24B4A"), "idle": QColor("#EF9F27"),
-               "quiet": QColor("#D3D1C7")}
+
+
+def _palette() -> tuple:
+    """时间轴配色随主题取（绘制时刻调用，切主题后重绘即生效）。"""
+    dark = ui_charts.theme() is ui_charts.THEMES["dark"]
+    grid = ((QColor("#31343A"), QColor("#4A4E55"), QColor("#6BA6E8")) if dark else
+            (QColor("#EDEBE4"), QColor("#B4B2A9"), QColor("#378ADD")))
+    gap = ({"lock": QColor("#E86A68"), "idle": QColor("#EFAB45")} if dark else
+           {"lock": QColor("#E24B4A"), "idle": QColor("#EF9F27")})
+    gap["quiet"] = ui_charts.theme_color("gap_quiet")
+    return grid, gap
 
 
 class TimelineBar(QWidget):
@@ -55,25 +63,26 @@ class TimelineBar(QWidget):
 
     def paintEvent(self, _event) -> None:
         painter = QPainter(self)
-        painter.fillRect(self.rect(), QColor("#FFFFFF"))
+        painter.fillRect(self.rect(), ui_charts.theme_color("surface"))
         if not self.slots:
-            painter.setPen(QPen(COLOR_MUTED))
+            painter.setPen(QPen(ui_charts.theme_color("muted")))
             painter.drawText(self.rect(), Qt.AlignCenter, i18n.t("nodata"))
             return
+        colors, gap_colors = _palette()
         bar = QRectF(0, 4, self.width(), 22)
         slot_w = bar.width() / len(self.slots)
         for index, level in enumerate(self.slots):
             painter.fillRect(QRectF(bar.x() + index * slot_w, bar.y(),
-                                    slot_w + 0.5, bar.height()), _COLORS[level])
+                                    slot_w + 0.5, bar.height()), colors[level])
         painter.setFont(QFont("Microsoft YaHei", 7))
-        painter.setPen(QPen(QColor("#EF9F27")))
+        painter.setPen(QPen(gap_colors["idle"]))
         for gap in self.gaps:      # 断档标记：条下沿的短橙条
             x0 = gap["start_ms"] - self.day_start
             x1 = gap["end_ms"] - self.day_start
             painter.fillRect(QRectF(x0 / _SLOT_W_MS * slot_w, bar.bottom() + 5,
                                     max((x1 - x0) / _SLOT_W_MS * slot_w, 2), 4),
-                             _GAP_COLORS.get(gap["reason"], _GAP_COLORS["quiet"]))
-        painter.setPen(QPen(COLOR_MUTED))
+                             gap_colors.get(gap["reason"], gap_colors["quiet"]))
+        painter.setPen(QPen(ui_charts.theme_color("muted")))
         for hour, label in ((0, "00:00"), (6, "06:00"), (12, "12:00"),
                             (18, "18:00"), (24, "24:00")):
             painter.drawText(QRectF(hour / 24 * self.width() - 16, bar.bottom() + 10,
@@ -148,7 +157,7 @@ class HealthPage(QWidget):
         if grid["first_ms"]:
             covered = i18n.t("health_cover", _clock(grid["first_ms"]),
                              _clock(grid["last_ms"]),
-                             fmt_duration(grid["last_ms"] - grid["first_ms"]))
+                            ui_charts.fmt_duration(grid["last_ms"] - grid["first_ms"]))
         self.summary.setText(i18n.t("health_summary", quality["segments"],
                                     quality["apps"], quality["errors"])
                              + covered + verdict)

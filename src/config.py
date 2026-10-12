@@ -15,7 +15,7 @@ from pathlib import Path
 
 APP_NAME = "UsageWatcher"
 APP_TITLE = "软件使用时长监测"
-APP_VERSION = "0.6.0"
+APP_VERSION = "0.6.1"
 
 # ---------------------------------------------------------------- 路径
 
@@ -113,6 +113,7 @@ DEFAULTS: dict = {
     "overlay_enabled": False,   # 桌面悬浮窗（v0.3）：独立进程，额外约 45MB，默认关
     "overlay_x": -1,            # 悬浮窗位置（v0.3.2 修复 BUG-34）：-1 = 未记录，
     "overlay_y": -1,            # 用默认位置。save/load 只认 DEFAULTS 键，漏了就永远存不下来
+    "dark_mode": False,         # 深色主题（v0.6.1）：设置页勾选，即时生效，重启后保持
     "merge_overrides": {},      # 用户即席合并（v0.5）：{exe路径小写: 组名或""}。
                                 # "" = 强制不归并（拆组）；优先级高于内置预设与爬根。
 }

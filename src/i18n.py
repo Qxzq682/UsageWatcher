@@ -175,6 +175,8 @@ _T = {
                           " (effective after restarting the statistics window)"),
     "chk_overlay": ("显示桌面悬浮窗（独立进程，额外占用约 45 MB 内存）",
                     "Show desktop overlay (separate process, ~45 MB extra memory)"),
+    "chk_dark": ("深色主题（即时生效，重启后保持）", "Dark theme (applies instantly, persists)"),
+    "dark_fail": ("主题设置保存失败，已还原。", "Failed to save theme setting; reverted."),
     "overlay_note": ("重启电脑后，打开统计窗口时悬浮窗会自动恢复。",
                      "After a reboot, the overlay is restored automatically when you "
                      "open the statistics window."),

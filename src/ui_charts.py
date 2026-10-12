@@ -15,15 +15,29 @@ from PySide6.QtCore import QRectF, Qt
 from PySide6.QtGui import QColor, QFont, QPainter, QPen
 from PySide6.QtWidgets import QWidget
 
+import config
 import i18n
 
-COLOR_FG = QColor("#378ADD")
-COLOR_BG = QColor("#B4B2A9")
-COLOR_TEXT = QColor("#2C2C2A")
-COLOR_MUTED = QColor("#888780")
+# 主题色表（v0.6.1）：muted 按 WCAG ≥4.5:1 校准（旧弱字色仅 3.4:1，看不清）；
+# 深浅由设置页 config.dark_mode 切换，画笔绘制时刻取色，重绘即生效。
+THEMES: dict = {
+    "light": {"surface": "#FFFFFF", "text": "#2C2C2A", "muted": "#6B6A62", "bar": "#C2C0B6",
+              "fg": "#378ADD", "grid": "#EDEBE4", "gap_quiet": "#C6C4B8"},
+    "dark": {"surface": "#26282C", "text": "#E8E6DE", "muted": "#A8A69E", "bar": "#4A4E55",
+             "fg": "#6BA6E8", "grid": "#31343A", "gap_quiet": "#4A4E55"},
+}
 
-# Top5 趋势调色板：按名次取色（名次在周期内全局排名，颜色跟着应用走）
+# Top5 趋势调色板：按名次取色（名次在周期内全局排名，颜色跟着应用走）；深浅底均可用
 TREND_COLORS = ("#378ADD", "#5DCAA5", "#EF9F27", "#D4537E", "#7F77DD")
+
+
+def theme() -> dict:
+    """当前主题色表：跟随 config.dark_mode（默认浅色）。"""
+    return THEMES["dark"] if config.load().get("dark_mode") else THEMES["light"]
+
+
+def theme_color(key: str) -> QColor:
+    return QColor(theme()[key])
 
 
 def asset_path(name: str) -> Path:
@@ -35,10 +49,11 @@ def asset_path(name: str) -> Path:
 
 
 def apply_style(app) -> None:
-    """给 QApplication 挂全局 QSS；缺失/读失败跳过（样式不致命，
-    资源完整性由 selftest 断言兜底）。"""
+    """给 QApplication 挂全局 QSS（按 config.dark_mode 选深/浅样式表）；
+    缺失/读失败跳过（样式不致命，资源完整性由 selftest 断言兜底）。"""
     try:
-        app.setStyleSheet(asset_path("style.qss").read_text(encoding="utf-8"))
+        name = "style_dark.qss" if config.load().get("dark_mode") else "style.qss"
+        app.setStyleSheet(asset_path(name).read_text(encoding="utf-8"))
     except OSError:
         pass
 
@@ -70,9 +85,9 @@ class StackedBar(QWidget):
     def paintEvent(self, _event) -> None:
         painter = QPainter(self)
         painter.setRenderHint(QPainter.Antialiasing)
-        painter.fillRect(self.rect(), QColor("#FFFFFF"))
+        painter.fillRect(self.rect(), theme_color("surface"))
         if not self.rows:
-            painter.setPen(QPen(COLOR_MUTED))
+            painter.setPen(QPen(theme_color("muted")))
             painter.drawText(self.rect(), Qt.AlignCenter, i18n.t("nodata"))
             return
         label_width = 130
@@ -82,17 +97,17 @@ class StackedBar(QWidget):
 
         for index, row in enumerate(self.rows):
             y = 12 + index * 26
-            painter.setPen(QPen(COLOR_TEXT))
+            painter.setPen(QPen(theme_color("text")))
             painter.setFont(QFont("Microsoft YaHei", 9))
             painter.drawText(QRectF(0, y, label_width - 8, 18),
                              int(Qt.AlignRight | Qt.AlignVCenter),
                              _elide(row["display_name"], 12))
             width = max(bar_area * row["total_ms"] / peak, 2)
             fg_width = max(width * row["fg_ratio"], 0)
-            painter.fillRect(QRectF(label_width, y + 3, width, 12), COLOR_BG)
+            painter.fillRect(QRectF(label_width, y + 3, width, 12), theme_color("bar"))
             if fg_width > 0:
-                painter.fillRect(QRectF(label_width, y + 3, fg_width, 12), COLOR_FG)
-            painter.setPen(QPen(COLOR_MUTED))
+                painter.fillRect(QRectF(label_width, y + 3, fg_width, 12), theme_color("fg"))
+            painter.setPen(QPen(theme_color("muted")))
             painter.drawText(QRectF(label_width + width + 6, y, 62, 18),
                              int(Qt.AlignLeft | Qt.AlignVCenter),
                              fmt_duration(row["total_ms"]))
@@ -130,9 +145,9 @@ class DailyBars(QWidget):
     def paintEvent(self, _event) -> None:
         painter = QPainter(self)
         painter.setRenderHint(QPainter.Antialiasing)
-        painter.fillRect(self.rect(), QColor("#FFFFFF"))
+        painter.fillRect(self.rect(), theme_color("surface"))
         if not self.days:
-            painter.setPen(QPen(COLOR_MUTED))
+            painter.setPen(QPen(theme_color("muted")))
             painter.drawText(self.rect(), Qt.AlignCenter, i18n.t("nodata"))
             return
         peak = max((d["active_ms"] for d in self.days), default=1) or 1
@@ -146,7 +161,7 @@ class DailyBars(QWidget):
             total = day["active_ms"]
             height = max((base - 10) * total / peak, 2)
             x = center - bar_width / 2
-            painter.fillRect(QRectF(x, base - height, bar_width, height), COLOR_BG)
+            painter.fillRect(QRectF(x, base - height, bar_width, height), theme_color("bar"))
             parts = self.fg_by_day.get(day["day"], {})
             y = base
             for rank, label in enumerate(self._top):
@@ -159,7 +174,7 @@ class DailyBars(QWidget):
                 y -= fg_height
                 painter.fillRect(QRectF(x, y, bar_width, fg_height),
                                  QColor(TREND_COLORS[rank]))
-            painter.setPen(QPen(COLOR_MUTED))
+            painter.setPen(QPen(theme_color("muted")))
             painter.drawText(QRectF(center - 24, base + 2, 48, 16),
                              int(Qt.AlignHCenter | Qt.AlignTop), day["day"][5:])
         painter.end()

@@ -1,16 +1,19 @@
-/* UsageWatcher 全局样式（v0.6 UI 轻美化）
-   调色板与手绘图层一致：主蓝 #378ADD · 纸灰 #EDEBE4 · 正文 #2C2C2A · 弱字 #888780
+/* UsageWatcher 全局样式（v0.6.1，浅色）
+   调色板与手绘图层一致：主蓝 #378ADD · 纸灰 #EDEBE4 · 正文 #2C2C2A · 弱字 #6B6A62
+   对比度：正文 12.9:1、弱字 5.3:1（均 ≥ WCAG AA 4.5:1；旧弱字色仅 3.4:1 已弃用）
+   深色主题见 style_dark.qss，由设置页 config.dark_mode 切换。
    原则：只统一观感，不改版式结构（四页签布局 v0.5 已验收）。 */
 
 /* ---- 基础 ---- */
-QMainWindow, QDialog { background: #F7F6F2; }
-QLabel { background: transparent; }
+QMainWindow, QDialog { background: #F7F6F2; color: #2C2C2A; }
+QLabel { background: transparent; color: #2C2C2A; }
+QLabel#muted { color: #6B6A62; }
 QToolTip { background: #FFFBEA; color: #2C2C2A; border: 1px solid #C9C7BE; padding: 3px 6px; }
 
 /* ---- 页签 ---- */
 QTabWidget::pane { border: 1px solid #D3D1C7; border-radius: 4px; background: #FFFFFF; top: -1px; }
 QTabBar::tab {
-    background: transparent; color: #888780;
+    background: transparent; color: #5F5E57;
     padding: 6px 16px; margin-right: 2px;
     border: 1px solid transparent; border-bottom: none;
     border-top-left-radius: 4px; border-top-right-radius: 4px;
@@ -45,7 +48,7 @@ QTableView {
     selection-background-color: #DCEAF7; selection-color: #2C2C2A;
 }
 QHeaderView::section {
-    background: #EDEBE4; border: none; border-right: 1px solid #D3D1C7;
+    background: #EDEBE4; color: #3A3934; border: none; border-right: 1px solid #D3D1C7;
     padding: 5px 6px; font-weight: bold;
 }
 QTableWidget { background: #FFFFFF; alternate-background-color: #F7F6F2; border: 1px solid #D3D1C7;
@@ -53,11 +56,11 @@ QTableWidget { background: #FFFFFF; alternate-background-color: #F7F6F2; border:
 
 /* ---- 滚动条（细条） ---- */
 QScrollBar:vertical { background: transparent; width: 10px; margin: 0; }
-QScrollBar::handle:vertical { background: #C9C7BE; border-radius: 5px; min-height: 30px; }
-QScrollBar::handle:vertical:hover { background: #888780; }
+QScrollBar::handle:vertical { background: #B8B6AC; border-radius: 5px; min-height: 30px; }
+QScrollBar::handle:vertical:hover { background: #5F5E57; }
 QScrollBar:horizontal { background: transparent; height: 10px; margin: 0; }
-QScrollBar::handle:horizontal { background: #C9C7BE; border-radius: 5px; min-width: 30px; }
-QScrollBar::handle:horizontal:hover { background: #888780; }
+QScrollBar::handle:horizontal { background: #B8B6AC; border-radius: 5px; min-width: 30px; }
+QScrollBar::handle:horizontal:hover { background: #5F5E57; }
 QScrollBar::add-line, QScrollBar::sub-line, QScrollBar::add-page, QScrollBar::sub-page { background: none; border: none; height: 0; width: 0; }
 
 /* ---- 菜单与弹窗 ---- */

@@ -1058,14 +1058,21 @@ def test_own_exe_and_assets() -> None:
           apps.is_own_exe(r"C:\Other\pythonw.exe") is False
           and apps.is_own_exe("") is False)
     from ui_charts import asset_path
-    for name in ("style.qss", "privacy_zh.html", "privacy_en.html"):
+    for name in ("style.qss", "style_dark.qss", "privacy_zh.html", "privacy_en.html"):
         path = asset_path(name)
         check("资源存在且非空：%s" % name,
               path.is_file() and path.stat().st_size > 100, str(path))
-    qss = asset_path("style.qss").read_text(encoding="utf-8")
+    light = asset_path("style.qss").read_text(encoding="utf-8")
+    dark = asset_path("style_dark.qss").read_text(encoding="utf-8")
     check("style.qss 覆盖核心控件（页签/按钮/表格/滚动条）",
-          all(token in qss for token in
+          all(token in light for token in
               ("QTabBar::tab", "QPushButton", "QTableView", "QScrollBar")))
+    check("style_dark.qss 与浅色选择器集合一致（双主题同步）",
+          all(token in dark for token in
+              ("QTabBar::tab", "QPushButton", "QTableView", "QScrollBar",
+               "QHeaderView::section", "QMenu::item", "QTextBrowser")))
+    check("浅色弱字对比度达 WCAG AA（不再用 #888780 做文字）",
+          "#888780" not in light and "#6B6A62" in light)
     for name in ("privacy_zh.html", "privacy_en.html"):
         text = asset_path(name).read_text(encoding="utf-8")
         check("%s 含两个数据目录占位符且无裸百分号" % name,

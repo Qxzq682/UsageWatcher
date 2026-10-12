@@ -23,10 +23,17 @@ from PySide6.QtWidgets import (
 
 import config
 import i18n
+import ui_charts
 import winutil
-from ui_charts import asset_path
+from ui_charts import apply_style, asset_path, theme_color
 
-LEVEL_COLOR = {"yes": QColor("#3B6D11"), "partial": QColor("#854F0B"), "no": QColor("#A32D2D")}
+# 可监测等级三色：深浅主题各一套（深底亮色系 / 浅底深色系），绘制时取
+_LEVEL_TABLE = {"yes": ("#3B6D11", "#8CC84B"), "partial": ("#854F0B", "#E8A23F"),
+                "no": ("#A32D2D", "#E86A68")}
+
+
+def level_color(level: str) -> QColor:
+    return QColor(_LEVEL_TABLE[level][int(ui_charts.theme() is ui_charts.THEMES["dark"])])
 
 # 业务键 = 数据库 category 值（逻辑判断只用 key，显示经 i18n.t("cat_"+key)）
 CATEGORY_KEYS = ("all", "third_party", "windows", "system", "suggest_exclude")
@@ -117,7 +124,7 @@ class ScopePage(QWidget):
 
             level_text, level_mark = i18n.t("lvl_" + level), i18n.t("mark_" + level)
             level_item = QTableWidgetItem("%s  %s" % (level_mark, level_text))
-            level_item.setForeground(LEVEL_COLOR[level])
+            level_item.setForeground(level_color(level))
             level_item.setToolTip(reason or i18n.t("monitor_ok"))
             self.table.setItem(index, 2, level_item)
 
@@ -128,7 +135,7 @@ class ScopePage(QWidget):
             if is_locked:
                 check.setFlags(Qt.ItemIsSelectable)
                 check.setText(i18n.t("locked_mark"))
-                check.setForeground(LEVEL_COLOR["no"])
+                check.setForeground(level_color("no"))
                 check.setToolTip(reason)
             else:
                 check.setFlags(Qt.ItemIsUserCheckable | Qt.ItemIsSelectable | Qt.ItemIsEnabled)
@@ -139,7 +146,7 @@ class ScopePage(QWidget):
             note = QTableWidgetItem(reason or (i18n.t("cat_" + category) if category else ""))
             note.setToolTip(reason)
             if not reason:
-                note.setForeground(QColor("#888780"))
+                note.setForeground(theme_color("muted"))
             self.table.setItem(index, 4, note)
         self.table.blockSignals(False)
 
@@ -213,23 +220,19 @@ class PrivacyPage(QWidget):
         self.autostart.toggled.connect(self._set_autostart)
 
         # 界面语言（v0.3）：保存偏好，重启统计窗口后生效
-        lang_row = QHBoxLayout()
-        lang_row.addWidget(QLabel(i18n.t("lbl_language")))
-        self.lang_pick = QComboBox()
-        self.lang_pick.addItems(["简体中文", "English"])   # 语言名固定用本语言书写
-        self.lang_pick.setCurrentIndex(0 if i18n.current() == "zh" else 1)
-        self.lang_pick.currentIndexChanged.connect(self._set_language)
-        lang_row.addWidget(self.lang_pick)
-        lang_row.addWidget(QLabel(i18n.t("lang_restart_note")))
-        lang_row.addStretch(1)
+        lang_row = self._lang_row()
 
         # 桌面悬浮窗（v0.3）：独立进程，默认关；取消勾选经 overlay.flag 优雅退出
         self.overlay_chk = QCheckBox(i18n.t("chk_overlay"))
         self.overlay_chk.setChecked(bool(config.load().get("overlay_enabled")))
         self.overlay_chk.toggled.connect(self._set_overlay)
         overlay_note = QLabel(i18n.t("overlay_note"))
-        overlay_note.setStyleSheet("color:#888780;")
+        overlay_note.setObjectName("muted")
 
+        # 深色主题（v0.6.1）：即时生效，重启后保持
+        self.dark_chk = QCheckBox(i18n.t("chk_dark"))
+        self.dark_chk.setChecked(bool(config.load().get("dark_mode")))
+        self.dark_chk.toggled.connect(self._set_dark)
         # 软件管理（v0.2 C3）：卸载入口集成进软件，不再要用户去翻 tools 目录
         manage = QHBoxLayout()
         manage.addWidget(QLabel(i18n.t("lbl_manage")))
@@ -249,6 +252,7 @@ class PrivacyPage(QWidget):
         layout.addLayout(lang_row)
         layout.addWidget(self.overlay_chk)
         layout.addWidget(overlay_note)
+        layout.addWidget(self.dark_chk)
         layout.addLayout(buttons)
         layout.addLayout(manage)
 
@@ -259,6 +263,30 @@ class PrivacyPage(QWidget):
         except OSError:
             self._rollback(self.lang_pick, 0 if i18n.current() == "zh" else 1)
             QMessageBox.warning(self, i18n.t("set_fail_title"), i18n.t("cfg_save_fail"))
+
+    def _lang_row(self) -> QHBoxLayout:
+        """语言选择行（语言名固定用本语言书写）。"""
+        row = QHBoxLayout()
+        row.addWidget(QLabel(i18n.t("lbl_language")))
+        self.lang_pick = QComboBox()
+        self.lang_pick.addItems(["简体中文", "English"])
+        self.lang_pick.setCurrentIndex(0 if i18n.current() == "zh" else 1)
+        self.lang_pick.currentIndexChanged.connect(self._set_language)
+        row.addWidget(self.lang_pick)
+        row.addWidget(QLabel(i18n.t("lang_restart_note")))
+        row.addStretch(1)
+        return row
+
+    def _set_dark(self, on: bool) -> None:
+        """深色主题切换：先落盘再换样式；失败回滚 UI 并可见（R8）。"""
+        try:
+            config.save({**config.load(), "dark_mode": bool(on)})
+        except OSError:
+            self._rollback(self.dark_chk, not on)
+            return QMessageBox.warning(self, i18n.t("set_fail_title"), i18n.t("dark_fail"))
+        apply_style(QApplication.instance())     # 全局换样式表，本页与主窗口重取色
+        if hasattr(self.window(), "reload"):
+            self.window().reload()
 
     def _set_overlay(self, on: bool) -> None:
         try:

@@ -142,8 +142,8 @@ class Overlay(QWidget):
         p.setPen(QPen(QColor("#8FA6B0")))
         p.setFont(QFont("Microsoft YaHei", 7))
         p.drawText(self.rect().adjusted(12, 44, -8, -2), Qt.AlignLeft,
-                   i18n.t("ov_fg_bg", _fmt(self._today["fg_ms"]),
-                          _fmt(self._today["bg_ms"])))
+                   i18n.t("ov_fg_bg", fmt_duration(self._today["fg_ms"]),
+                          fmt_duration(self._today["bg_ms"])))
         p.end()
 
     # ---- 交互：拖动 / 右键菜单 ----
