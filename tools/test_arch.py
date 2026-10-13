@@ -36,7 +36,10 @@ MAX_FILES = 18           # v0.5 经作者同意 15→18（+ui_charts/ui_health/u
 #      设置页开关/悬浮窗 _fmt 漏改修复，净 +37，已尽力压缩 -9；3200 收拢仍顺延 v0.7）
 # v0.6.2 修系统深色模式白底白字 3265→3270（实测 3270：apply_style 强制
 #      colorScheme 跟随主题 +7，QSS 显式 color 全覆盖；3200 收拢仍顺延 v0.7）
-MAX_CODE_LINES = 3270
+# v0.6.3 第 10 轮检测 B1 修复 3270→3285（实测 3280：is_own_exe 改路径集合
+#      （壳+真身，源码运行也生效）+10、WorkBuddy 家族预设 +3、注释加厚；
+#      留 5 行余量——上一版余量为 0 被检测报告点名）
+MAX_CODE_LINES = 3285
 # 阈值必须只在 config.py 定义一次，其它模块只许用 config.XXX 访问
 UI_FORBIDDEN = ("sqlite3", "select ", "insert ", "update ", "delete from",
                 ".execute(", ".executemany(", ".executescript(")

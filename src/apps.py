@@ -18,16 +18,33 @@ from typing import Optional
 import config
 import winutil
 
-# 本程序自身的 exe 路径（小写）。统计窗口宿主是 pythonw.exe（源码运行时），
-# 它占前台时若按版本资源显示，列表里会出现无意义的 "pythonw.exe"（v0.6 瑕疵1）。
-# 命中自己时改用产品名。按完整路径匹配，用户自己的其它 Python 脚本不受影响；
-# 打包版 exe 的版本资源本就是产品名，判定恒False 于他人、命中也无害。
-_OWN_EXE = os.path.abspath(sys.executable).lower()
+# 本程序自身可能以哪些 exe 运行（小写路径集合）。统计窗口宿主（源码运行时是
+# 真解释器 pythonw.exe）占前台时若按版本资源显示，列表里会出现无意义的
+# "pythonw.exe"/"Python"（v0.5 挂账瑕疵1）。命中自己时改用产品名。
+# 为什么是集合而不是单个 sys.executable：源码运行下本进程的 sys.executable
+# 是 venv 壳（Scripts\pythonw.exe），而前台窗口宿主是它拉起的**真解释器**
+# （versions\<ver>\pythonw.exe）—— 壳≠真身，只比一个路径永远 False
+# （第 10 轮检测报告 B1，与 MEMORY 三次踩过的 venv 壳坑同源）。
+# 收集：本进程 exe + base_prefix（真解释器目录）+ Scripts 同目录的壳，
+# 不存在的一律过滤。打包运行时集合就是 {UsageWatcher.exe}，行为不变；
+# 无关的 python（D:\tools\Python313 等）不在集合里，不会误伤。
+def _own_exe_candidates() -> set:
+    cands = {os.path.abspath(sys.executable).lower()}
+    base = getattr(sys, "base_prefix", "") or ""
+    for name in ("python.exe", "pythonw.exe"):
+        if base:
+            cands.add(os.path.abspath(os.path.join(base, name)).lower())
+        cands.add(os.path.abspath(
+            os.path.join(os.path.dirname(sys.executable), name)).lower())
+    return {c for c in cands if os.path.exists(c)}
+
+
+_OWN_EXES = _own_exe_candidates()
 
 
 def is_own_exe(path: str) -> bool:
     """该 exe 路径是否为本程序自身（纯函数，便于回归）。"""
-    return bool(path) and os.path.abspath(path).lower() == _OWN_EXE
+    return bool(path) and os.path.abspath(path).lower() in _OWN_EXES
 
 # ---------------------------------------------------------------- 契约
 
@@ -173,6 +190,11 @@ _MERGE_PRESETS = (
     ("exe", "weixin.exe", "微信"),
     ("exe", "wechatappex.exe", "微信"),
     ("exe", "wechat.exe", "微信"),
+    # WorkBuddy 本体与其自带 python 运行时（resources\vendor\python）同属一个
+    # 应用家族：爬根会浮到 "work buddy"（父目录与祖目录规范化同名上浮），
+    # 显示成小写目录名毫无意义（第 10 轮检测 B2/B3）。预设命中即生效。
+    # WorkBuddyAI（workbuddyai\...）不含 "work buddy\workbuddy" 子串，不误伤。
+    ("path", "work buddy\\workbuddy", "WorkBuddy"),
 )
 
 
@@ -348,7 +370,7 @@ class Resolver:
             if info is None:
                 raw = winutil.file_version_info(path)
                 fallback = sanitize(os.path.basename(path))
-                own = key == _OWN_EXE
+                own = is_own_exe(path)
                 info = AppInfo(
                     app_key=key,
                     exe_path=sanitize(path),

@@ -1024,6 +1024,20 @@ def test_steam_root() -> None:
         "y": (r"D:\Soft\MyApp\bin\b.exe", "b.exe")}).get("x") == "MyApp")
     check("非 steam 路径不受影响（单成员仍不改名）",
           "z" not in apps.build_merge_map({"z": (r"D:\Tools\edit.exe", "edit.exe")}))
+    # WorkBuddy 家族预设（第 10 轮检测 B2/B3）：本体 + 自带 python 运行时 → "WorkBuddy"
+    m3 = apps.build_merge_map({
+        "w1": (r"D:\work buddy\WorkBuddy\WorkBuddy.exe", "WorkBuddy.exe"),
+        "w2": (r"D:\work buddy\WorkBuddy\RepairApp.exe", "RepairApp.exe"),
+        "w3": (r"D:\work buddy\WorkBuddy\resources\vendor\python\pythonw.exe",
+               "pythonw.exe"),
+        "ai": (r"D:\tools\WorkBuddyAI\resources\vendor\python\pythonw.exe",
+               "pythonw.exe"),
+    })
+    check("WorkBuddy 本体/修复工具/自带 python 并入 WorkBuddy 组（单成员也生效）",
+          m3.get("w1") == "WorkBuddy" and m3.get("w2") == "WorkBuddy"
+          and m3.get("w3") == "WorkBuddy", str(m3))
+    check("WorkBuddyAI 的同构 vendor python 不误伤（路径子串不同）",
+          m3.get("ai") is None, str(m3))
 
 
 def test_doc_version_sync() -> None:
@@ -1054,6 +1068,10 @@ def test_own_exe_and_assets() -> None:
     import os
     check("is_own_exe 命中本进程解释器路径",
           apps.is_own_exe(sys.executable) is True, sys.executable)
+    check("is_own_exe 命中真解释器路径（venv 壳≠真身，第 10 轮 B1）",
+          apps.is_own_exe(os.path.join(getattr(sys, "base_prefix", ""),
+                                       "pythonw.exe")) is True,
+          os.path.join(getattr(sys, "base_prefix", ""), "pythonw.exe"))
     check("is_own_exe 不误伤他人路径（大小写/相对路径也判 False）",
           apps.is_own_exe(r"C:\Other\pythonw.exe") is False
           and apps.is_own_exe("") is False)

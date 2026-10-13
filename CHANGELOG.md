@@ -417,3 +417,32 @@ Q 截图实测：按钮/勾选框/下拉框/日期框/隐私说明表格文字�
   2. 浅色 QSS 为全部带字控件补显式 color（兜底，QSS color 优先于调色板）。
 - v0.5 及更早版本无样式表、整体跟随系统调色板，故不受影响；本次为
   v0.6 UI 美化的最后一笔遗留账。
+
+## [0.6.3] - 2026-10-13
+
+第 10 轮外部检测报告处置：1 项真缺陷修复 + 1 条归并预设。
+
+### 修复
+
+- **自身显示名判定在源码运行下失效（B1，v0.6.0 修复不彻底）**：
+  `is_own_exe` 原来只比本进程的 `sys.executable`——源码运行下那是 venv 壳
+  （`Scripts\pythonw.exe`），而前台窗口宿主是壳拉起的**真解释器**
+  （`versions\<ver>\pythonw.exe`），壳≠真身，判定永远 False，统计窗口自己的
+  时长仍显示为 "Python"。现改为**自身 exe 路径集合**（本进程 exe +
+  base_prefix 真解释器 + Scripts 同目录壳，不存在者过滤）：源码/打包双宿主
+  都命中，`D:/tools/Python313` 等无关 python 不在集合内不误伤。
+  selftest 补两条断言（真解释器路径判 True；打包版单 exe 语义不变）。
+  打包版此前无此问题。
+
+### 归并
+
+- **WorkBuddy 家族预设（B2/B3，显示优化）**：新增预设
+  `("path", "work buddy\\workbuddy", "WorkBuddy")` —— 本体（WorkBuddy.exe、
+  RepairApp.exe）与其自带 python 运行时（resources\vendor\python）并入
+  "WorkBuddy" 组，不再显示为裸 "python"/小写目录名 "work buddy"。
+  WorkBuddyAI 的同构 vendor python 路径不含该子串，实测不误伤（selftest 断言）。
+
+### 工程
+
+- 配额 3270→3285（实测 3280，+10）：上一版余量 0 被报告点名，本次留 5 行。
+- selftest 185 项（+3）。检测报告 B2/B3 属"显示偏好非缺陷"，已按建议落实。

@@ -15,7 +15,7 @@ from pathlib import Path
 
 APP_NAME = "UsageWatcher"
 APP_TITLE = "软件使用时长监测"
-APP_VERSION = "0.6.2"
+APP_VERSION = "0.6.3"
 
 # ---------------------------------------------------------------- 路径
 
