@@ -309,7 +309,10 @@ class Store:
                 "errors": err}
 
     def daily_series(self, day_from: str, day_to: str) -> List[dict]:
-        """按天序列（近 N 天迷你柱状图）；active_ms = 当天 fg∪bg 并集。"""
+        """按天序列（近 N 天迷你柱状图）；active_ms = 当天 fg∪bg 并集。
+        fg/bg 也各取**当天并集**：后台多进程共存，相加会重复计入重叠
+        （实测悬浮窗显示"后台 36 小时/天"——几十个进程的后台片段全加了一遍，
+        用户截图实锤，第 11 轮后）。"""
         rows = self.conn.execute(
             "SELECT day, app_id, kind, start_ms, end_ms FROM segment WHERE day BETWEEN ? AND ? ORDER BY day",
             (day_from, day_to)).fetchall()
@@ -320,8 +323,9 @@ class Store:
             spans = (int(row["start_ms"]), int(row["end_ms"]))
             grouped.setdefault((day, kind), []).append(spans)
             entry = per_day.setdefault(day, {"day": day, "fg_ms": 0, "bg_ms": 0, "_spans": []})
-            entry["fg_ms" if kind == "fg" else "bg_ms"] += track.union_ms([spans])
             entry["_spans"].append(spans)
+        for (day, kind), spans_list in grouped.items():
+            per_day[day]["fg_ms" if kind == "fg" else "bg_ms"] = track.union_ms(spans_list)
         for entry in per_day.values():   # fg∪bg 大并集（不分 kind）
             entry["active_ms"] = track.union_ms(entry.pop("_spans"))
         return [per_day[d] for d in sorted(per_day)]

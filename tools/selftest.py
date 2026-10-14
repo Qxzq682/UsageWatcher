@@ -1198,6 +1198,43 @@ def test_config_save_keys() -> None:
         config.save(cfg0)   # 还原用户原配置，不留下测试值
 
 
+def test_daily_series_bg_union() -> None:
+    print("\n[51] daily_series 后台并集口径（悬浮窗曾显示后台 36h/天：多进程相加）")
+    import shutil
+    import tempfile
+    from pathlib import Path
+    tmp = tempfile.mkdtemp(prefix="uw_s51_")
+    store = data.Store(path=Path(tmp) / "t.db")
+    try:
+        base = 1760000000000          # 固定某天，避免测试随日期漂移
+        day = track.day_of(base)
+        store.conn.execute(
+            "INSERT INTO app (app_key, exe_path, exe_name, display_name, version,"
+            " publisher, first_seen_ms, last_seen_ms)"
+            " VALUES ('k','p','a.exe','A','1','pub',0,0)")
+        app_id = store.conn.execute("SELECT app_id FROM app").fetchone()["app_id"]
+        segs = [("bg", base, base + 3600000),          # bg 60 分钟
+                ("bg", base + 1800000, base + 5400000),  # bg 与上一段重叠 30 分钟
+                ("fg", base + 2700000, base + 3000000)]  # fg 5 分钟落在 bg 区间内
+        for kind, s, e in segs:
+            store.conn.execute(
+                "INSERT INTO segment (app_id, pid, kind, start_ms, end_ms, dur_ms,"
+                " flags, day) VALUES (?,1,?,?,?,?,0,?)",
+                (app_id, kind, s, e, e - s, day))
+        store.conn.commit()
+        series = store.daily_series(day, day)[0]
+        check("bg_ms = 后台片段并集（重叠 30 分钟不重复计）",
+              series["bg_ms"] == 90 * 60000, "%d 分" % (series["bg_ms"] // 60000))
+        check("fg_ms = 前台并集", series["fg_ms"] == 5 * 60000,
+              "%d 分" % (series["fg_ms"] // 60000))
+        check("active_ms = fg∪bg 大并集（90 分钟）",
+              series["active_ms"] == 90 * 60000,
+              "%d 分" % (series["active_ms"] // 60000))
+    finally:
+        store.close()
+        shutil.rmtree(tmp, ignore_errors=True)
+
+
 def main() -> int:
     print("=" * 68)
     print(" 自测：纯逻辑回归 + 安全红线")
@@ -1249,6 +1286,7 @@ def main() -> int:
     test_v07_defaults_and_balloon_struct()
     test_gui_reload_wiring()
     test_config_save_keys()
+    test_daily_series_bg_union()
 
     print("\n" + "=" * 68)
     print("通过 %d 项，失败 %d 项" % (PASSED, len(FAILED)))
