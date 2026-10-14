@@ -265,7 +265,7 @@ class PrivacyPage(QWidget):
     def _set_language(self, index: int) -> None:
         lang = "zh" if index == 0 else "en"
         try:
-            config.save({**config.load(), "ui_language": lang})
+            config.save({"ui_language": lang}, keys=("ui_language",))
         except OSError:
             self._rollback(self.lang_pick, 0 if i18n.current() == "zh" else 1)
             QMessageBox.warning(self, i18n.t("set_fail_title"), i18n.t("cfg_save_fail"))
@@ -293,7 +293,7 @@ class PrivacyPage(QWidget):
     def _save_flag(self, key: str, on: bool, widget) -> None:
         """布尔偏好落盘的通用路径：失败回滚 UI 并可见（R8）。"""
         try:
-            config.save({**config.load(), key: bool(on)})
+            config.save({key: bool(on)}, keys=(key,))
         except OSError:
             self._rollback(widget, not on)
             QMessageBox.warning(self, i18n.t("set_fail_title"), i18n.t("cfg_save_fail"))
@@ -301,7 +301,7 @@ class PrivacyPage(QWidget):
     def _set_dark(self, on: bool) -> None:
         """深色主题切换：先落盘再换样式；失败回滚 UI 并可见（R8）。"""
         try:
-            config.save({**config.load(), "dark_mode": bool(on)})
+            config.save({"dark_mode": bool(on)}, keys=("dark_mode",))
         except OSError:
             self._rollback(self.dark_chk, not on)
             return QMessageBox.warning(self, i18n.t("set_fail_title"), i18n.t("dark_fail"))
@@ -311,7 +311,7 @@ class PrivacyPage(QWidget):
 
     def _set_overlay(self, on: bool) -> None:
         try:
-            config.save({**config.load(), "overlay_enabled": bool(on)})
+            config.save({"overlay_enabled": bool(on)}, keys=("overlay_enabled",))
         except OSError:
             self._rollback(self.overlay_chk, not on)
             QMessageBox.warning(self, i18n.t("set_fail_title"), i18n.t("cfg_save_fail"))

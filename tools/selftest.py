@@ -1138,6 +1138,63 @@ def test_v07_defaults_and_balloon_struct() -> None:
                "limit_title", "limit_body", "limit_prompt")))
 
 
+def test_gui_reload_wiring() -> None:
+    print("\n[49] GUI 数据流接线（v0.7.1 教训：init 尾部三行被卷进 helper 成死代码，"
+          "闸门全绿但界面永不加载——行为断言堵死这类回归）")
+    import os as _os
+    _os.environ.setdefault("QT_QPA_PLATFORM", "offscreen")
+    import shutil as _sh
+    import tempfile as _tempfile
+    from pathlib import Path as _Path
+    src_db = _Path(config.data_dir()) / "usage.db"
+    if not src_db.is_file():
+        print("  （无真库，跳过行为断言）")
+        return
+    tmp = _tempfile.mkdtemp(prefix="uw_selftest_")
+    try:
+        db_copy = _Path(tmp) / "usage.db"
+        for extra in ("-wal", "-shm"):
+            if _os.path.exists(str(src_db) + extra):
+                _sh.copy(str(src_db) + extra, str(db_copy) + extra)
+        _sh.copy(str(src_db), str(db_copy))
+        from PySide6.QtWidgets import QApplication
+        _ = QApplication.instance() or QApplication(["uw"])
+        import data as _data
+        import ui_main as _ui_main
+        store = _data.Store(path=db_copy)
+        try:
+            win = _ui_main.MainWindow(store, daemon_alive=lambda: True)
+            check("__init__ 必须完成首次 reload（汇总行非空 = 接线在位）",
+                  bool(win.summary.text()), repr(win.summary.text()[:60]))
+            win.period.setCurrentIndex(1)     # 切"昨日"：信号触发路径也要生效
+            check("切换周期信号触发 reload（行数变化或汇总更新）",
+                  bool(win.summary.text()), repr(win.summary.text()[:60]))
+        finally:
+            store.close()
+    finally:
+        _sh.rmtree(tmp, ignore_errors=True)
+    app_src = (_Path(config.__file__).parent / "app.py").read_text(encoding="utf-8")
+    check("守护提醒判定与统计页同口径（merge_map 而非 {}，第 11 轮 B1）",
+          "merge_map=self._merge_map" in app_src)
+
+
+def test_config_save_keys() -> None:
+    print("\n[50] config.save 精确键语义（第 11 轮 B2：跨进程读改写互覆盖）")
+    cfg0 = config.load()
+    try:
+        config.save({**cfg0, "overlay_x": 111, "rank_limit": 7}, keys=("overlay_x",))
+        back = config.load()
+        check("keys 模式只覆盖显式键：overlay_x 写入",
+              back.get("overlay_x") == 111, str(back.get("overlay_x")))
+        check("keys 模式不碰其它键：rank_limit 保持磁盘值（不会被同批带入）",
+              back.get("rank_limit") == cfg0.get("rank_limit"), str(back.get("rank_limit")))
+        config.save({"rank_limit": 7}, keys=("rank_limit",))
+        check("keys 模式第二次写不覆盖第一次之外的键",
+              config.load().get("overlay_x") == 111 and config.load().get("rank_limit") == 7)
+    finally:
+        config.save(cfg0)   # 还原用户原配置，不留下测试值
+
+
 def main() -> int:
     print("=" * 68)
     print(" 自测：纯逻辑回归 + 安全红线")
@@ -1187,6 +1244,8 @@ def main() -> int:
     test_own_exe_and_assets()
     test_limit_notes()
     test_v07_defaults_and_balloon_struct()
+    test_gui_reload_wiring()
+    test_config_save_keys()
 
     print("\n" + "=" * 68)
     print("通过 %d 项，失败 %d 项" % (PASSED, len(FAILED)))

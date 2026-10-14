@@ -164,7 +164,8 @@ class Overlay(QWidget):
         moved = (event.globalPosition().toPoint() - self._press).manhattanLength() \
             if hasattr(self, "_press") else 999
         try:
-            config.save({**config.load(), "overlay_x": self.x(), "overlay_y": self.y()})
+            config.save({"overlay_x": self.x(), "overlay_y": self.y()},
+                        keys=("overlay_x", "overlay_y"))
         except OSError:
             pass    # 位置记不住是小损失，不值得打断使用（R8 针对故障可见）
         if moved <= 6:

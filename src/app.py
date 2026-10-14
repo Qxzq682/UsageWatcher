@@ -84,6 +84,7 @@ class Daemon:
         self._recheck_pending: set = set()  # 等待重探的应用；采样到即强制重写结论
         self._known_exes: set = set()
         self._known_at, self._worker, self._notified = 0.0, None, set()   # notified=今日已提醒（重启清零）
+        self._merge_map: dict = {}      # 归并表（30s 随 _enabled 刷新）：提醒口径与统计页一致
 
     # ---------------------------------------------------- 生命周期
 
@@ -145,11 +146,10 @@ class Daemon:
         if not (cfg := config.load()).get("limits_enabled") or not cfg.get("app_limits"):
             return
         rows = self.store.app_totals(track.day_of(_now_ms()), track.day_of(_now_ms()),
-                                     merge_map={})
+                                     merge_map=self._merge_map)
         for key, title, body in track.limit_notes(rows, cfg["app_limits"], self._notified):
             self._notified.add(key)
-            if self.icon and not self.icon.show_balloon(title, body):
-                self.store.log_event("balloon_fail", detail=key)
+            if self.icon and not self.icon.show_balloon(title, body): self.store.log_event("balloon_fail", detail=key)
 
     def stop_and_flush(self) -> None:
         """停采集 + 等工作线程收尾 + 先闭合还开着的片段再落库（不闭合会丢
@@ -213,7 +213,7 @@ class Daemon:
             self.fg_tracker.force_close(_now_ms(), config.FLAG_LOCK)
         self.paused = value
         try:    # 暂停意图落盘（BUG-4）：重启/崩溃重开都不许静默恢复采集
-            config.save({**config.load(), "paused": value})
+            config.save({"paused": value}, keys=("paused",))
         except OSError:
             self.store.error_count += 1   # R8：落盘失败必须可见，不许静默吞掉
         self.store.log_event("pause" if value else "resume_collect")
@@ -342,6 +342,8 @@ class Daemon:
         if time.monotonic() - self._enabled_at > 30.0:
             self._enabled = {key: True for key in self.store.enabled_keys()}
             self._recheck_pending = self.store.recheck_pending_keys()
+            self._merge_map = apps.build_merge_map(self.store.app_paths(),
+                overrides=config.load().get("merge_overrides"))  # B1:与UI同口径
             self._enabled_at = time.monotonic()
         if cap.level == "no":
             return False
@@ -382,13 +384,11 @@ class Daemon:
 def _now_ms() -> int: return int(time.time() * 1000)
 
 
-def _user_sid() -> str:
-    return winutil.current_user_sid() or "unknown"
+def _user_sid() -> str: return winutil.current_user_sid() or "unknown"
 
 
 def _fmt_duration(ms: int) -> str:
-    m = int(ms // 60000)
-    return "%dm" % m if m < 60 else "%dh%02dm" % (m // 60, m % 60)
+    m = int(ms // 60000); return "%dm" % m if m < 60 else "%dh%02dm" % (m // 60, m % 60)
 
 
 def run_gui(smoke: bool = False) -> int:

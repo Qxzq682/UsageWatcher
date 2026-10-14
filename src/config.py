@@ -15,7 +15,7 @@ from pathlib import Path
 
 APP_NAME = "UsageWatcher"
 APP_TITLE = "软件使用时长监测"
-APP_VERSION = "0.7.0"
+APP_VERSION = "0.7.1"
 
 # ---------------------------------------------------------------- 路径
 
@@ -147,8 +147,18 @@ def load() -> dict:
     return cfg
 
 
-def save(cfg: dict) -> None:
-    """只写已知键，避免把随机内容落盘。"""
+def save(cfg: dict, keys=None) -> None:
+    """落盘配置。keys=None = 整体覆盖（旧语义，还原/批量写时用）；
+    传 keys（如 ("paused",)）= **只覆盖显式列出的键**，其余以磁盘现值为准。
+    单次 replace 是原子的，但"读-改-写"整体不是 —— v0.7 起守护与统计窗口
+    两个进程都写 config.json，精确声明改动键把跨进程竞态窗口缩到毫秒级
+    （第 11 轮检测 B2：防"暂停丢失/阈值丢一次"）。"""
+    if keys:
+        disk = load()                      # 写前重读，拿到别的进程刚写的值
+        for k in keys:
+            if k in cfg:
+                disk[k] = cfg[k]
+        cfg = disk
     clean = {k: cfg.get(k, DEFAULTS[k]) for k in DEFAULTS}
     path = config_path()
     tmp = path.with_suffix(".json.tmp")

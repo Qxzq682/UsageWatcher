@@ -177,8 +177,7 @@ class MainWindow(QMainWindow):
         top.addWidget(export)
         top.addWidget(monthly)
         top.addStretch(1)
-        self.summary = QLabel("")
-        top.addWidget(self.summary)
+        self.summary = QLabel(""); top.addWidget(self.summary)
 
         self.model = RankModel()
         self.table = QTableView()
@@ -202,23 +201,22 @@ class MainWindow(QMainWindow):
         self.hint.setStyleSheet("color:#8a6d3b; background:#fdf6e3; padding:6px 10px;")
         self.hint.setWordWrap(True)
         self.hint.hide()
-        # 每日摘要横幅（v0.7）：每天首次打开统计窗口展示昨日概览（设置页可关）
-        self.banner = self._make_banner()
-        self.banner.hide()
+        self.banner = self._make_banner(); self.banner.hide()
         self._build_tabs_and_layout(top)
+
+        self.period.currentTextChanged.connect(self.reload)
+        self.reload()
+        self._start_auto_refresh()
 
     @staticmethod
     def _make_banner() -> QLabel:
+        """每日摘要横幅（v0.7）：每天首次打开统计窗口展示昨日概览（设置页可关）。"""
         label = QLabel("")
         label.setWordWrap(True)
         label.setTextFormat(Qt.RichText)
         label.setStyleSheet("background:#eef4fb; border:1px solid #cfe0f3;"
                             "border-radius:4px; padding:6px 10px;")
         return label
-
-        self.period.currentTextChanged.connect(self.reload)
-        self.reload()
-        self._start_auto_refresh()
 
     def _build_tabs_and_layout(self, top: QHBoxLayout) -> None:
         stats_tab = QWidget()
@@ -307,7 +305,7 @@ class MainWindow(QMainWindow):
             self.banner.hide()
             return
         try:
-            config.save({**cfg, "summary_last_day": today})
+            config.save({"summary_last_day": today}, keys=("summary_last_day",))
         except OSError:
             pass      # 落盘失败只影响"今天不再重查"，展示本身不受影响（R8 权衡）
         yesterday = date.today() - timedelta(days=1)

@@ -19,7 +19,7 @@ def _overrides() -> dict:
 
 def _save(ov: dict) -> None:
     try:
-        config.save({**config.load(), "merge_overrides": ov})
+        config.save({"merge_overrides": ov}, keys=("merge_overrides",))
     except OSError:
         QMessageBox.warning(None, i18n.t("set_fail_title"), i18n.t("cfg_save_fail"))
 
@@ -82,9 +82,10 @@ def limit_dialog(parent, row: dict) -> None:
     else:
         limits[key] = int(round(hours * 60))
     try:
-        config.save({**config.load(), "app_limits": limits,
+        config.save({"app_limits": limits,
                      "limits_enabled": True if hours > 0
-                     else config.load().get("limits_enabled", False)})
+                     else config.load().get("limits_enabled", False)},
+                    keys=("app_limits", "limits_enabled"))
     except OSError:
         QMessageBox.warning(parent, i18n.t("set_fail_title"), i18n.t("cfg_save_fail"))
 
