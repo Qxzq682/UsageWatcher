@@ -126,15 +126,22 @@ class HealthPage(QWidget):
         layout.addWidget(self.summary)
         layout.addStretch(1)
         self.day_pick.dateChanged.connect(lambda _d: self.reload())
+        self.reload()      # v0.7.1：构造即加载今天——此前首次进入健康页永远是空的
 
     def _shift(self, days: int) -> None:
         self.day_pick.setDate(self.day_pick.date().addDays(days))
 
     def sync_day(self, day: str) -> None:
-        """统计页周期变化时跟随（止日）；用户在健康页自选日期不被打断。"""
+        """统计页周期变化时跟随（止日）。同日也重载 —— 统计页"刷新"按钮 /
+        5s 自动刷新对健康页同样生效（此前同日直接跳过，健康页停在旧数据）；
+        用户自选的其它日期不被打断（不同日才 setDate）。"""
         target = QDate.fromString(day, "yyyy-MM-dd")
-        if target.isValid() and target != self.day_pick.date():
-            self.day_pick.setDate(target)
+        if not target.isValid():
+            return
+        if target != self.day_pick.date():
+            self.day_pick.setDate(target)      # dateChanged → reload
+        else:
+            self.reload()
 
     def reload(self) -> None:
         day = self.day_pick.date().toString("yyyy-MM-dd")

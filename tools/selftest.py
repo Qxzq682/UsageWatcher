@@ -1166,6 +1166,9 @@ def test_gui_reload_wiring() -> None:
             win = _ui_main.MainWindow(store, daemon_alive=lambda: True)
             check("__init__ 必须完成首次 reload（汇总行非空 = 接线在位）",
                   bool(win.summary.text()), repr(win.summary.text()[:60]))
+            health = win.tabs.widget(1)
+            check("数据健康页构造即加载今天（v0.7.1：同日不刷新导致首进永远空页）",
+                  bool(health.summary.text()), repr(health.summary.text()[:60]))
             win.period.setCurrentIndex(1)     # 切"昨日"：信号触发路径也要生效
             check("切换周期信号触发 reload（行数变化或汇总更新）",
                   bool(win.summary.text()), repr(win.summary.text()[:60]))
