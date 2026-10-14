@@ -83,7 +83,7 @@ class Daemon:
         self._cap_written: set = set()      # 结论只写一次，防覆盖 UI 的重置（BUG-6）
         self._recheck_pending: set = set()  # 等待重探的应用；采样到即强制重写结论
         self._known_exes: set = set()
-        self._known_at, self._worker = 0.0, None
+        self._known_at, self._worker, self._notified = 0.0, None, set()   # notified=今日已提醒（重启清零）
 
     # ---------------------------------------------------- 生命周期
 
@@ -138,7 +138,18 @@ class Daemon:
                      _fmt_duration(s["fg_ms"]), _fmt_duration(s["bg_ms"]))
         if self.store.error_count:
             tip += i18n.t("tip_errors", self.store.error_count)
-        self.icon.set_tooltip(tip)
+        self.icon.set_tooltip(tip); self._maybe_limits()
+
+    def _maybe_limits(self) -> None:
+        # v0.7 用时提醒：60s 粒度（随 housekeeping）查今日前台并集，超限托盘气泡
+        if not (cfg := config.load()).get("limits_enabled") or not cfg.get("app_limits"):
+            return
+        rows = self.store.app_totals(track.day_of(_now_ms()), track.day_of(_now_ms()),
+                                     merge_map={})
+        for key, title, body in track.limit_notes(rows, cfg["app_limits"], self._notified):
+            self._notified.add(key)
+            if self.icon and not self.icon.show_balloon(title, body):
+                self.store.log_event("balloon_fail", detail=key)
 
     def stop_and_flush(self) -> None:
         """停采集 + 等工作线程收尾 + 先闭合还开着的片段再落库（不闭合会丢
@@ -368,8 +379,7 @@ class Daemon:
 
 # ---------------------------------------------------------------- 工具
 
-def _now_ms() -> int:
-    return int(time.time() * 1000)
+def _now_ms() -> int: return int(time.time() * 1000)
 
 
 def _user_sid() -> str:

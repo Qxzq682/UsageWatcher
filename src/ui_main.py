@@ -202,7 +202,19 @@ class MainWindow(QMainWindow):
         self.hint.setStyleSheet("color:#8a6d3b; background:#fdf6e3; padding:6px 10px;")
         self.hint.setWordWrap(True)
         self.hint.hide()
+        # 每日摘要横幅（v0.7）：每天首次打开统计窗口展示昨日概览（设置页可关）
+        self.banner = self._make_banner()
+        self.banner.hide()
         self._build_tabs_and_layout(top)
+
+    @staticmethod
+    def _make_banner() -> QLabel:
+        label = QLabel("")
+        label.setWordWrap(True)
+        label.setTextFormat(Qt.RichText)
+        label.setStyleSheet("background:#eef4fb; border:1px solid #cfe0f3;"
+                            "border-radius:4px; padding:6px 10px;")
+        return label
 
         self.period.currentTextChanged.connect(self.reload)
         self.reload()
@@ -231,6 +243,7 @@ class MainWindow(QMainWindow):
         central = QWidget()
         layout = QVBoxLayout(central)
         layout.addLayout(top)
+        layout.addWidget(self.banner)
         layout.addWidget(self.hint)
         layout.addWidget(self.tabs)
         self.setCentralWidget(central)
@@ -282,6 +295,31 @@ class MainWindow(QMainWindow):
             for color, label in self.daily.legend_items()))
         self.tabs.widget(1).sync_day(day_to)      # 数据健康页跟随止日
         self._update_hint(rows)
+        self._update_banner()
+
+    def _update_banner(self) -> None:
+        """每日摘要横幅（v0.7）：每天首次打开展示昨日 Top3 概览（A 方案）。
+        config.summary_last_day 记"展示过"的日期 —— 含昨天无记录的日子，
+        否则每 5s 自动刷新都会反复查库；明天自然重新尝试。"""
+        cfg = config.load()
+        today = date.today().isoformat()
+        if not cfg.get("summary_enabled") or cfg.get("summary_last_day") == today:
+            self.banner.hide()
+            return
+        try:
+            config.save({**cfg, "summary_last_day": today})
+        except OSError:
+            pass      # 落盘失败只影响"今天不再重查"，展示本身不受影响（R8 权衡）
+        yesterday = date.today() - timedelta(days=1)
+        rows = self.store.app_totals(yesterday.isoformat(), yesterday.isoformat(), limit=3)
+        if not rows:
+            self.banner.hide()
+            return
+        tops = "、".join("%s %s" % (r["display_name"], fmt_duration(r["total_ms"]))
+                         for r in rows)
+        self.banner.setText(i18n.t("sum_banner",
+                                   fmt_duration(sum(r["total_ms"] for r in rows)), tops))
+        self.banner.show()
 
     def _row_menu(self, pos) -> None:
         index = self.table.indexAt(pos)

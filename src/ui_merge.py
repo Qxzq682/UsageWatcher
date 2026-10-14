@@ -51,6 +51,8 @@ def show_menu(parent, global_pos, row: dict, merge_map: dict,
     """在表格行上弹出合并菜单。on_done() 在规则变化后被调用（宿主 reload）。"""
     keys = members_of(row, merge_map)
     menu = QMenu(parent)
+    menu.addAction(i18n.t("limit_menu"), lambda: limit_dialog(parent, row))
+    menu.addSeparator()
     sub = menu.addMenu(i18n.t("merge_into"))
     for group in sorted({v for v in merge_map.values() if v != row["display_name"]}):
         sub.addAction(group, lambda g=group: _assign(keys, app_paths, g, on_done))
@@ -59,9 +61,32 @@ def show_menu(parent, global_pos, row: dict, merge_map: dict,
     if row["display_name"] in merge_map.values():
         menu.addAction(i18n.t("merge_ungroup") % row["display_name"],
                        lambda: _assign(keys, app_paths, "", on_done))
-    if len(menu.actions()) == 1 and not sub.actions():
-        return          # 无组可并、无组可拆，不弹空菜单
     menu.exec(global_pos)
+
+
+def limit_dialog(parent, row: dict) -> None:
+    """单应用用时提醒设置（v0.7）：app_limits[app_key] = 分钟，0 = 删除。
+    设置非零阈值时自动打开总开关 —— 否则"设了却不生效"是惊喜缺陷。
+    总开关仍可在设置页关掉（关掉只停提醒，不删各应用的阈值）。"""
+    limits = config.load().get("app_limits")
+    limits = dict(limits) if isinstance(limits, dict) else {}
+    key = row["app_key"]
+    hours, ok = QInputDialog.getDouble(
+        parent, i18n.t("limit_menu"),
+        i18n.t("limit_prompt", row["display_name"]),
+        limits.get(key, 0) / 60.0, 0, 24, 1)
+    if not ok:
+        return
+    if hours <= 0:
+        limits.pop(key, None)
+    else:
+        limits[key] = int(round(hours * 60))
+    try:
+        config.save({**config.load(), "app_limits": limits,
+                     "limits_enabled": True if hours > 0
+                     else config.load().get("limits_enabled", False)})
+    except OSError:
+        QMessageBox.warning(parent, i18n.t("set_fail_title"), i18n.t("cfg_save_fail"))
 
 
 def _new_group(parent, keys: list, app_paths: dict, on_done) -> None:

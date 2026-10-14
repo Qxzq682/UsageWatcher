@@ -1097,6 +1097,47 @@ def test_own_exe_and_assets() -> None:
               text.count("%s") == 2 and not __import__("re").search(r"%(?!s)", text))
 
 
+def test_limit_notes() -> None:
+    print("\n[47] 单应用用时提醒判定（v0.7，纯函数）")
+    rows = [
+        {"app_key": r"d:\soft\game.exe", "display_name": "Game", "fg_ms": 120 * 60000},
+        {"app_key": r"d:\soft\ide.exe", "display_name": "IDE", "fg_ms": 59 * 60000},
+        {"app_key": r"d:\soft\bg.exe", "display_name": "Bg", "fg_ms": 200 * 60000},
+    ]
+    limits = {r"d:\soft\game.exe": 120, r"d:\soft\ide.exe": 120, r"d:\soft\bg.exe": 60}
+    notes = track.limit_notes(rows, limits, set())
+    check("达到阈值（恰好相等也算）产出一条提醒，文案含应用名与可读时长",
+          len(notes) == 2 and notes[0][0] == r"d:\soft\game.exe"
+          and "Game" in notes[0][2] and "2 小时" in notes[0][2], str(notes))
+    check("已提醒过的键不重复（每日一次）",
+          track.limit_notes(rows, limits, {r"d:\soft\game.exe"}) is not None
+          and all(n[0] != r"d:\soft\game.exe"
+                  for n in track.limit_notes(rows, limits, {r"d:\soft\game.exe", r"d:\soft\bg.exe"})))
+    check("不在 limits 里的应用不提醒",
+          all(n[0] != r"d:\soft\bg.exe"
+              for n in track.limit_notes(rows, {r"d:\soft\game.exe": 120}, set())))
+    check("limits 非法类型（用户手改 json）安静返回空（R3）",
+          track.limit_notes(rows, "garbage", set()) == [])
+    check("空 limits 不产出", track.limit_notes(rows, {}, set()) == [])
+
+
+def test_v07_defaults_and_balloon_struct() -> None:
+    print("\n[48] v0.7 配置键与气泡结构")
+    import i18n
+    import tray
+    for key in ("summary_enabled", "summary_last_day", "limits_enabled", "app_limits"):
+        check("DEFAULTS 含 %s（漏键 = 永远存不下来，v0.3.2 坑）" % key, key in config.DEFAULTS)
+    fields = {f[0] for f in tray._NOTIFYICONDATAW._fields_}
+    check("气泡依赖的 NOTIFYICONDATA 字段齐备（szInfo/szInfoTitle/dwInfoFlags）",
+          {"szInfo", "szInfoTitle", "dwInfoFlags"} <= fields)
+    check("NIF_INFO/NIIF_INFO 常量与 Win32 一致",
+          tray.NIF_INFO == 0x10 and tray.NIIF_INFO == 0x1)
+    check("i18n 新词条中英齐备",
+          all(k in i18n._T for k in
+              ("chk_summary", "chk_limits", "sum_banner", "limit_menu",
+               "limit_title", "limit_body", "limit_prompt")))
+
+
 def main() -> int:
     print("=" * 68)
     print(" 自测：纯逻辑回归 + 安全红线")
@@ -1144,6 +1185,8 @@ def main() -> int:
     test_doc_version_sync()
     test_members_of_no_misread()
     test_own_exe_and_assets()
+    test_limit_notes()
+    test_v07_defaults_and_balloon_struct()
 
     print("\n" + "=" * 68)
     print("通过 %d 项，失败 %d 项" % (PASSED, len(FAILED)))

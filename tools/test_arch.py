@@ -39,7 +39,9 @@ MAX_FILES = 18           # v0.5 经作者同意 15→18（+ui_charts/ui_health/u
 # v0.6.3 第 10 轮检测 B1 修复 3270→3285（实测 3280：is_own_exe 改路径集合
 #      （壳+真身，源码运行也生效）+10、WorkBuddy 家族预设 +3、注释加厚；
 #      留 5 行余量——上一版余量为 0 被检测报告点名）
-MAX_CODE_LINES = 3285
+# v0.7 功能版 Q 拍板 3285→3450（每日摘要横幅 + 单应用用时提醒 +~160；
+#      配额收拢 3200 顺延 v0.8 精修轮，复刻 v0.5 放宽→v0.6 收回的节奏）
+MAX_CODE_LINES = 3450
 # 阈值必须只在 config.py 定义一次，其它模块只许用 config.XXX 访问
 UI_FORBIDDEN = ("sqlite3", "select ", "insert ", "update ", "delete from",
                 ".execute(", ".executemany(", ".executescript(")

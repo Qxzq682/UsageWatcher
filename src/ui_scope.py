@@ -233,6 +233,10 @@ class PrivacyPage(QWidget):
         self.dark_chk = QCheckBox(i18n.t("chk_dark"))
         self.dark_chk.setChecked(bool(config.load().get("dark_mode")))
         self.dark_chk.toggled.connect(self._set_dark)
+
+        # 每日摘要 + 用时提醒总开关（v0.7）：只写偏好，行为分别在 GUI/守护
+        self.summary_chk = self._bool_check(i18n.t("chk_summary"), "summary_enabled")
+        self.limits_chk = self._bool_check(i18n.t("chk_limits"), "limits_enabled")
         # 软件管理（v0.2 C3）：卸载入口集成进软件，不再要用户去翻 tools 目录
         manage = QHBoxLayout()
         manage.addWidget(QLabel(i18n.t("lbl_manage")))
@@ -253,6 +257,8 @@ class PrivacyPage(QWidget):
         layout.addWidget(self.overlay_chk)
         layout.addWidget(overlay_note)
         layout.addWidget(self.dark_chk)
+        layout.addWidget(self.summary_chk)
+        layout.addWidget(self.limits_chk)
         layout.addLayout(buttons)
         layout.addLayout(manage)
 
@@ -276,6 +282,21 @@ class PrivacyPage(QWidget):
         row.addWidget(QLabel(i18n.t("lang_restart_note")))
         row.addStretch(1)
         return row
+
+    def _bool_check(self, text: str, key: str) -> QCheckBox:
+        """布尔偏好勾选框工厂：状态来自 config，切换走 _save_flag（失败回滚）。"""
+        chk = QCheckBox(text)
+        chk.setChecked(bool(config.load().get(key)))
+        chk.toggled.connect(lambda on, w=chk, k=key: self._save_flag(k, on, w))
+        return chk
+
+    def _save_flag(self, key: str, on: bool, widget) -> None:
+        """布尔偏好落盘的通用路径：失败回滚 UI 并可见（R8）。"""
+        try:
+            config.save({**config.load(), key: bool(on)})
+        except OSError:
+            self._rollback(widget, not on)
+            QMessageBox.warning(self, i18n.t("set_fail_title"), i18n.t("cfg_save_fail"))
 
     def _set_dark(self, on: bool) -> None:
         """深色主题切换：先落盘再换样式；失败回滚 UI 并可见（R8）。"""

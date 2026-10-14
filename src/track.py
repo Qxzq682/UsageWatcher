@@ -16,6 +16,7 @@ from dataclasses import dataclass
 from typing import Iterable, List, Optional
 
 import config
+import i18n
 
 # ---------------------------------------------------------------- 契约
 
@@ -276,3 +277,34 @@ def clamp_fg_overlaps(segments: List[Segment]) -> tuple:
             prev.end_ms = cur.start_ms
             clamped += 1
     return segments, clamped
+
+
+# ---------------------------------------------------------------- 用时提醒（v0.7）
+
+def _dur_text(mins: int) -> str:
+    """阈值换算成可读时长（复用 i18n 的 dur 词条，避免 1 分钟阈值显示 0.0 小时）。"""
+    return i18n.t("dur_min", mins) if mins < 60 else i18n.t("dur_hm", mins // 60, mins % 60)
+
+
+def limit_notes(rows: list, limits, notified: set) -> list:
+    """单应用用时阈值判定（纯函数，零 I/O —— selftest 可全量覆盖）。
+
+    rows = data.app_totals(today, today, merge_map={})（逐应用口径，零 SQL 新增）；
+    limits = {app_key 小写路径: 分钟}（config.app_limits）；notified 由调用方持有，
+    命中的键不再产出（每应用每天最多一次；守护重启集合清零 = 最坏多提醒一次）。
+    口径 = **前台并集时长**：阈值提醒的语义是"你用它太久该歇了"，
+    后台活动（听歌/挂加速器）不触发。返回 [(app_key, 标题, 正文)]。
+    """
+    if not isinstance(limits, dict):
+        return []
+    out: list = []
+    for row in rows:
+        key = str(row["app_key"])
+        limit = limits.get(key)
+        if (not limit or key in notified
+                or int(row["fg_ms"]) < int(limit) * 60000):
+            continue
+        out.append((key, i18n.t("limit_title"),
+                    i18n.t("limit_body", str(row["display_name"]),
+                           _dur_text(int(limit)))))
+    return out

@@ -29,7 +29,8 @@ WM_APP = 0x8000
 WM_TRAYICON = WM_APP + 1
 
 NIM_ADD, NIM_MODIFY, NIM_DELETE = 0x0, 0x1, 0x2
-NIF_MESSAGE, NIF_ICON, NIF_TIP = 0x1, 0x2, 0x4
+NIF_MESSAGE, NIF_ICON, NIF_TIP, NIF_INFO = 0x1, 0x2, 0x4, 0x10
+NIIF_INFO = 0x1          # 气泡带信息图标（i）
 MF_STRING, MF_SEPARATOR, MF_CHECKED, MF_GRAYED = 0x0, 0x800, 0x8, 0x1
 TPM_RIGHTBUTTON, TPM_RETURNCMD = 0x0002, 0x0100
 IDI_APPLICATION = 32512
@@ -196,6 +197,22 @@ class TrayIcon:
         self._data.szTip = text[:127]
         if self._visible:
             _shell32.Shell_NotifyIconW(NIM_MODIFY, ctypes.byref(self._data))
+
+    def show_balloon(self, title: str, text: str) -> bool:
+        """托盘气泡通知（v0.7 用时提醒）：复用现有 NOTIFYICONDATA 走 NIM_MODIFY。
+        发完立刻清掉 NIF_INFO 与 szInfo —— 否则下一次 set_tooltip 的 modify
+        会带着 INFO 标志重弹同一个气泡。失败返回 False 由调用方记日志（R8）。
+        托盘还没显示出来时 modify 无效，同样返回 False。"""
+        data = self._data
+        data.uFlags |= NIF_INFO
+        data.szInfo = text[:255]
+        data.szInfoTitle = title[:63]
+        data.dwInfoFlags = NIIF_INFO
+        ok = self._visible and bool(
+            _shell32.Shell_NotifyIconW(NIM_MODIFY, ctypes.byref(data)))
+        data.uFlags &= ~NIF_INFO
+        data.szInfo = ""
+        return ok
 
     def show(self) -> bool:
         ok = bool(_shell32.Shell_NotifyIconW(NIM_ADD, ctypes.byref(self._data)))
