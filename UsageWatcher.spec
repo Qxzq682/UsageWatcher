@@ -11,7 +11,8 @@ a = Analysis(
     datas=[('assets\\style.qss', 'assets'),
            ('assets\\style_dark.qss', 'assets'),
            ('assets\\privacy_zh.html', 'assets'),
-           ('assets\\privacy_en.html', 'assets')],
+           ('assets\\privacy_en.html', 'assets'),
+           ('BUG反馈模板.md', '.'),   # v0.7.5：托盘"反馈问题"打开此模板
     # ui_main/ui_scope/ui_overlay 是函数内 import（守护模式永不加载 Qt），
     # pycaw 是 audio.py 函数内 import —— 显式声明防漏收
     hiddenimports=['ui_main', 'ui_scope', 'ui_overlay', 'pycaw.pycaw'],

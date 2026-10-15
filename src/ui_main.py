@@ -26,7 +26,7 @@ import config
 import data
 import i18n
 import ui_merge
-from ui_charts import DailyBars, StackedBar, apply_style, fmt_duration
+from ui_charts import DailyBars, StackedBar, apply_style, asset_path, fmt_duration
 
 PERIOD_KEYS = ("today", "yesterday", "byday", "week", "month", "30d")
 
@@ -403,10 +403,12 @@ class MainWindow(QMainWindow):
 
 
 def run(smoke: bool = False, daemon_alive=None) -> int:
+    from PySide6.QtGui import QIcon
     from PySide6.QtWidgets import QApplication
 
     app = QApplication.instance() or QApplication(sys.argv)
     apply_style(app)
+    app.setWindowIcon(QIcon(str(asset_path("app_icon.ico"))))
     store = data.Store()
     import ui_overlay
     ui_overlay.restore_if_enabled()

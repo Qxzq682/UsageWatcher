@@ -24,6 +24,7 @@ _T = {
     "tip_errors": ("\n[!] 采集异常 %d 次", "\n[!] %d collection errors"),
     "tray_summary": ("今日前台 %s · 后台 %s", "Today fg %s · bg %s"),
     "tray_open": ("打开统计窗口", "Open statistics"), "tray_open_data": ("打开数据目录", "Open data folder"),
+    "tray_feedback": ("反馈问题…", "Report an issue..."),
     "tray_pause": ("暂停统计", "Pause tracking"),
     "tray_resume": ("继续统计", "Resume tracking"), "tray_quit": ("退出", "Exit"),
     "period_today": ("今日", "Today"), "period_yesterday": ("昨日", "Yesterday"),

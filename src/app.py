@@ -104,14 +104,13 @@ class Daemon:
         self.fg.install()
         self.power.register(self.window.hwnd)
         self.window.on(tray.WM_COMMAND, self._on_command)
-        # 消息 id 绑进 lambda，避免处理器里再猜"这条消息是哪一个"
         self.window.on(sysmsg.WM_POWERBROADCAST, lambda wp, lp: self._on_power(sysmsg.WM_POWERBROADCAST, wp))
         self.window.on(sysmsg.WM_WTSSESSION_CHANGE, lambda wp, lp: self._on_power(sysmsg.WM_WTSSESSION_CHANGE, wp))
-        self.store.maintenance()
+        self.store.maintenance(); audio.ensure_init()   # 采集线程 COM 初始化（音频会话检测，v0.2 A1）
         self._worker = threading.Thread(target=self._loop, name="collector", daemon=True)
         self._worker.start()
-        audio.ensure_init()   # 采集线程的 COM 初始化（音频会话检测，v0.2 A1）
         return True
+
     def run(self) -> int:
         if not self.start(): return 1
         self.window.run(on_tick=self._housekeeping, should_stop=self.stop_event.is_set,
@@ -160,8 +159,7 @@ class Daemon:
             if self.icon and not self.icon.show_balloon(title, body): self.store.log_event("balloon_fail", detail=key)
 
     def stop_and_flush(self) -> None:
-        """停采集 + 等工作线程收尾 + 先闭合还开着的片段再落库（不闭合会丢
-        "用户正在用的那一段"，自检表现为"记录 0 个应用"）。"""
+        """停采集 + 等工作线程收尾 + 闭合开着的片段再落库（否则丢"正在用的那段"）。"""
         self.stop_event.set()
         if self._worker and self._worker.is_alive():
             self._worker.join(timeout=3)
@@ -194,11 +192,13 @@ class Daemon:
         elif item_id == tray.Options.OPEN_DATA:
             try: os.startfile(str(config.data_dir()))   # 只打开本应用自己的数据目录
             except OSError as exc: self.store.log_event("open_data_fail", detail=str(exc))
+        elif item_id == tray.Options.FEEDBACK:
+            try: os.startfile(_feedback_path())         # 打开 BUG 反馈模板（v0.7.5）
+            except OSError as exc: self.store.log_event("feedback_fail", detail=str(exc))
         elif item_id == tray.Options.PAUSE:
             self.set_paused(not self.paused)
         elif item_id == tray.Options.QUIT:
-            self.stop_event.set()
-            self.window.post_quit()
+            self.stop_event.set(); self.window.post_quit()
 
     def open_gui(self) -> None:
         """按需拉起统计窗口进程。参数全为字面量、绝不 shell=True（R5）。"""
@@ -216,8 +216,7 @@ class Daemon:
         self.paused = value
         try:    # 暂停意图落盘（BUG-4）：重启/崩溃重开都不许静默恢复采集
             config.save({"paused": value}, keys=("paused",))
-        except OSError:
-            self.store.error_count += 1   # R8：落盘失败必须可见，不许静默吞掉
+        except OSError: self.store.error_count += 1   # R8：落盘失败必须可见
         self.store.log_event("pause" if value else "resume_collect")
         if self.icon:
             self.icon.set_tooltip(i18n.t("tip_paused") if value else i18n.t("app_title"))
@@ -268,10 +267,7 @@ class Daemon:
         flag = config.stop_flag_path()
         if not flag.exists():
             return False
-        try:
-            flag.unlink()
-        except OSError:
-            pass
+        flag.unlink(missing_ok=True)
         return True
 
     def _tick(self) -> None:
@@ -353,8 +349,7 @@ class Daemon:
 
     def _known(self) -> set:
         if time.monotonic() - self._known_at > 300.0:
-            # 7 天窗口容忍"应用几天没被记到"的空档（last_seen_ms 已由 upsert 周期刷新）
-            self._known_exes = self.store.known_exe_paths(7 * 24)
+            self._known_exes = self.store.known_exe_paths(7 * 24)   # 7 天窗口容忍空档
             self._known_at = time.monotonic()
         return self._known_exes
 
@@ -384,6 +379,11 @@ class Daemon:
 # ---------------------------------------------------------------- 工具
 
 def _now_ms() -> int: return int(time.time() * 1000)
+
+
+def _feedback_path() -> str:   # BUG 反馈模板双态定位：打包=_MEIPASS，源码=项目根
+    base = getattr(sys, "_MEIPASS", None) or os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
+    return os.path.join(base, "BUG反馈模板.md")
 
 
 def _user_sid() -> str: return winutil.current_user_sid() or "unknown"
