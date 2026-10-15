@@ -49,7 +49,8 @@ MAX_FILES = 18           # v0.5 经作者同意 15→18（+ui_charts/ui_health/u
 # v0.7.5 托盘"反馈问题"入口 + 统计窗口图标 3520→3540（实测 3533；app.py 461→450
 #      集中压缩；3200 收拢仍顺延 v0.8）
 # v0.7.6 反馈入口进设置页（Q：右键托盘太隐蔽）3540→3550（实测 3544）
-MAX_CODE_LINES = 3550
+# v0.7.7 语言切换统计窗口自重启 + 反馈模板大众化 3550→3560（实测 3555）
+MAX_CODE_LINES = 3560
 # 阈值必须只在 config.py 定义一次，其它模块只许用 config.XXX 访问
 UI_FORBIDDEN = ("sqlite3", "select ", "insert ", "update ", "delete from",
                 ".execute(", ".executemany(", ".executescript(")

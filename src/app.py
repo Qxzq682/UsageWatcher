@@ -51,10 +51,6 @@ def _acquire_mutex(name: str) -> bool:
     return ctypes.get_last_error() != 183   # ERROR_ALREADY_EXISTS
 
 
-def acquire_single_instance() -> bool:
-    return _acquire_mutex(_MUTEX_NAME + _user_sid())
-
-
 # ---------------------------------------------------------------- 守护进程
 
 class Daemon:
@@ -320,17 +316,15 @@ class Daemon:
 
     @staticmethod
     def _is_junk(info) -> bool:
-        """读不到路径且连进程名都没有（name:pid-N）的样本：落库只会产生
-        「(null)[锁]」这种用户看不懂的行，且没有任何可用信息（BUG-28）。"""
+        """读不到路径且连进程名都没有（name:pid-N）的样本：落库只产出
+        「(null)[锁]」这类用户看不懂的行，无任何信息（BUG-28）。"""
         return not info.exe_path and info.app_key.startswith("name:pid-")
 
     def _register(self, info) -> bool:
-        """写入元信息并决定是否采集。最终决定权在 app_capability 表
-        （level='no' 恒 enabled=0），手工改配置也绕不过。结论每个应用只写
-        一次；「重新检测」过的例外，采样到即重写一次重探结论（读不到会
-        如实写回 no）。绝不能恒重写，否则内存 fail_count 会把 UI 的重置
-        立刻覆盖回 no（BUG-6）。
-        """
+        """写入元信息并决定是否采集（最终决定权在 app_capability，level='no'
+        恒 enabled=0，手工改配置也绕不过）。结论每应用只写一次、重探例外
+        （采样到即重写一次，读不到会如实写回 no）；绝不能恒重写——否则内存
+        fail_count 会把 UI 的重置立刻覆盖回 no（BUG-6）。"""
         self.store.upsert_app(info)
         cap = apps.capability_of(info, self.resolver.fail_count(info.app_key))
         if info.app_key not in self._cap_written or info.app_key in self._recheck_pending:
@@ -381,7 +375,7 @@ class Daemon:
 def _now_ms() -> int: return int(time.time() * 1000)
 
 
-def _feedback_path() -> str:   # BUG 反馈模板双态定位：打包=_MEIPASS，源码=项目根
+def _feedback_path() -> str:  # 反馈模板双态定位：打包=_MEIPASS，源码=项目根
     base = getattr(sys, "_MEIPASS", None) or os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
     return os.path.join(base, "BUG反馈模板.md")
 
@@ -400,8 +394,11 @@ def run_gui(smoke: bool = False) -> int:
     # 统计窗口自己的单实例：重复点「打开统计窗口」时第二个进程直接退（BUG-13），
     # 退出前把已有窗口唤起到前台（BUG-35：最小化时静默退出 = 用户双击无反应）
     if not _acquire_mutex("Local\\UsageWatcher_GUI_" + sid):
-        winutil.revive_window("%s v%s" % (config.APP_TITLE, config.APP_VERSION))
-        return 0
+        # 语言重启：旧进程退出中互斥稍后释放，等 3s 再要；双开 6 次失败按 BUG-35 唤起旧窗
+        for _ in range(6):
+            time.sleep(0.5)
+            if _acquire_mutex("Local\\UsageWatcher_GUI_" + sid): break
+        else: winutil.revive_window("%s v%s" % (config.APP_TITLE, config.APP_VERSION)); return 0
     # 合并入口（v0.2 C2）：双击快捷方式 = 看统计；发现守护没跑就顺手拉起来，
     # "首次查看时便启动"，用户不用先跑 启动.bat 再开窗口两步走。
     if not smoke and not winutil.mutex_alive(_MUTEX_NAME + sid):
@@ -429,7 +426,7 @@ def main(argv: list) -> int:
         import ui_overlay
         return ui_overlay.run() if ui_overlay.acquire_overlay_mutex() else 0
     if "--smoke" in argv: return _smoke_run()
-    if not acquire_single_instance():
+    if not _acquire_mutex(_MUTEX_NAME + _user_sid()):
         print(i18n.t("already_running"))
         run_gui()          # 不再起第二个采集器，直接把统计窗口拉起来
         return 0

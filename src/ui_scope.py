@@ -289,6 +289,7 @@ class PrivacyPage(QWidget):
         sid = winutil.current_user_sid() or "x"
         if not winutil.mutex_alive("Local\\UsageWatcher_Overlay_" + sid):
             return
+        import subprocess
         import threading
         import ui_overlay
 
@@ -305,7 +306,22 @@ class PrivacyPage(QWidget):
                 time.sleep(0.2)
             ui_overlay.launch_overlay()
 
-        threading.Thread(target=_restart_overlay, daemon=True).start()
+        threading.Thread(target=_restart_overlay, daemon=False).start()
+        # 统计窗口自身的界面文本在构造时随 i18n 缓存定死，运行时刷不动 ——
+        # 问一句"现在重启吗"，同意则拉起新进程再退出本进程（新实例会等互斥）
+        if QMessageBox.question(self, i18n.t("lang_restart_title"),
+                                i18n.t("lang_restart_body")) != QMessageBox.Yes:
+            return
+        try:
+            if getattr(sys, "frozen", False):
+                target = [sys.executable, "--gui"]
+            else:
+                target = [sys.executable, os.path.abspath(sys.argv[0]), "--gui"]
+            subprocess.Popen(target, shell=False, close_fds=True)   # nosec B603
+            from PySide6.QtWidgets import QApplication
+            QApplication.instance().quit()
+        except OSError as exc:
+            QMessageBox.warning(self, i18n.t("set_fail_title"), str(exc))
 
     def _lang_row(self) -> QHBoxLayout:
         """语言选择行（语言名固定用本语言书写）。"""
