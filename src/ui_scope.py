@@ -249,6 +249,7 @@ class PrivacyPage(QWidget):
         buttons = QHBoxLayout()
         buttons.addWidget(clear)
         buttons.addWidget(open_dir)
+        feedback = QPushButton(i18n.t("tray_feedback")); feedback.clicked.connect(self._open_feedback); buttons.addWidget(feedback)
         buttons.addStretch(1)
 
         layout = QVBoxLayout(self)
@@ -262,6 +263,16 @@ class PrivacyPage(QWidget):
         layout.addWidget(self.limits_chk)
         layout.addLayout(buttons)
         layout.addLayout(manage)
+
+    def _open_feedback(self) -> None:
+        """打开 BUG 反馈模板（v0.7.6 设置页入口；双态定位同 tray._icon_path，
+        tray/app 不能 import ui_charts，各自复制这几行——注释即同步哨兵）。"""
+        base = getattr(sys, "_MEIPASS", None) \
+            or os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
+        try:
+            os.startfile(os.path.join(base, "BUG反馈模板.md"))
+        except OSError as exc:
+            QMessageBox.warning(self, i18n.t("set_fail_title"), str(exc))
 
     def _set_language(self, index: int) -> None:
         lang = "zh" if index == 0 else "en"
