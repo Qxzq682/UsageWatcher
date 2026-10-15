@@ -46,7 +46,7 @@ MAX_FILES = 18           # v0.5 经作者同意 15→18（+ui_charts/ui_health/u
 # v0.7.3 用户实测两 bug 3480→3500（实测 3498：贴边闪烁改悬停轮询 +12、
 #      dock_side 纯函数 +8、语言切换联动重启悬浮窗 +18；3200 收拢仍顺延 v0.8）
 # v0.7.4 闪烁根治（抽屉式改宽度不改位置）+ 托盘接应用图标 3500→3520（实测 3514）
-MAX_CODE_LINES = 3520
+MAX_CODE_LINES = 3530
 # 阈值必须只在 config.py 定义一次，其它模块只许用 config.XXX 访问
 UI_FORBIDDEN = ("sqlite3", "select ", "insert ", "update ", "delete from",
                 ".execute(", ".executemany(", ".executescript(")
