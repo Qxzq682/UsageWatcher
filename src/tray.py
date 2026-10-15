@@ -12,6 +12,8 @@ from __future__ import annotations
 
 import ctypes
 import ctypes.wintypes as w
+import os
+import sys
 from typing import Callable, Dict, List, Optional
 
 import i18n
@@ -95,9 +97,22 @@ _u32.DestroyWindow.argtypes = [w.HWND]
 _u32.PostQuitMessage.argtypes = [ctypes.c_int]
 _u32.RegisterWindowMessageW.restype = w.UINT
 _u32.RegisterWindowMessageW.argtypes = [ctypes.c_wchar_p]
+_u32.LoadImageW.restype = w.HICON
+_u32.LoadImageW.argtypes = [w.HINSTANCE, w.LPCWSTR, w.UINT,
+                            ctypes.c_int, ctypes.c_int, w.UINT]
 _k32.GetModuleHandleW.restype = w.HINSTANCE
 _k32.GetModuleHandleW.argtypes = [ctypes.c_wchar_p]
 _shell32.Shell_NotifyIconW.argtypes = [w.DWORD, ctypes.POINTER(_NOTIFYICONDATAW)]
+
+IMAGE_ICON, LR_LOADFROMFILE = 1, 0x10
+
+
+def _icon_path() -> str:
+    """应用图标 assets/app_icon.ico 的双态定位（与 ui_charts.asset_path 同逻辑；
+    tray 零 Qt，不能 import ui_charts，故复制这 4 行——注释即同步哨兵）。"""
+    base = getattr(sys, "_MEIPASS", None) \
+        or os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
+    return os.path.join(base, "assets", "app_icon.ico")
 
 
 class ShellWindow:
@@ -181,7 +196,11 @@ class TrayIcon:
         self._window = window
         self._menu_provider = menu_provider
         self._visible = False
-        self._icon = _u32.LoadIconW(None, ctypes.c_wchar_p(IDI_APPLICATION))
+        # 应用图标（v0.7.4）：此前一直是系统默认白框（IDI_APPLICATION）；
+        # 读取失败回落默认图标，只损失"好看"不损失功能（R8 权衡）
+        self._icon = _u32.LoadImageW(
+            None, _icon_path(), IMAGE_ICON, 0, 0, LR_LOADFROMFILE) \
+            or _u32.LoadIconW(None, ctypes.c_wchar_p(IDI_APPLICATION))
         self._data = _NOTIFYICONDATAW()
         self._data.cbSize = ctypes.sizeof(_NOTIFYICONDATAW)
         self._data.hWnd = window.hwnd

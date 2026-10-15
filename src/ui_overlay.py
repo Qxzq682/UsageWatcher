@@ -82,6 +82,7 @@ class Overlay(QWidget):
         self._dragging = False
         self._docked = ""          # ""/"left"/"right"：停靠边（拖到屏缘自动停靠）
         self._full_x = self._full_y = 0   # 停靠时记住的完整位置
+        self._full_width = 0       # 构造宽度（_place 记录）：停靠展开/收缩共用
         self.setWindowFlags(Qt.FramelessWindowHint | Qt.WindowStaysOnTopHint | Qt.Tool)
         self.setAttribute(Qt.WA_TranslucentBackground)
         self.setWindowOpacity(config.OVERLAY_OPACITY)
@@ -140,6 +141,7 @@ class Overlay(QWidget):
 
     def _place(self) -> None:
         cfg = config.load()
+        self._full_width = self.width()
         x, y = int(cfg.get("overlay_x", -1)), int(cfg.get("overlay_y", -1))
         self._docked = str(cfg.get("overlay_docked", ""))
         if self._docked in ("left", "right") and x >= 0 and y >= 0:
@@ -160,13 +162,16 @@ class Overlay(QWidget):
 
     def _maybe_dock(self) -> None:
         screen = self._screen_at().availableGeometry()
-        self._docked = dock_side(self.x(), self.width(),
+        # 判定始终用完整宽度：收缩态（6px）拖回屏缘也算停靠，拖离屏缘则恢复完整窗口
+        self._docked = dock_side(self.x(), self._full_width,
                                  screen.left(), screen.right())
-        if self._docked == "right":
-            self._full_x, self._full_y = screen.right() - self.width(), self.y()
-        elif self._docked == "left":
+        if not self._docked:
+            self.setGeometry(self.x(), self.y(), self._full_width, self.height())
+        elif self._docked == "right":
+            self._full_x, self._full_y = screen.right() - self._full_width, self.y()
+            self._apply_dock()
+        else:
             self._full_x, self._full_y = screen.left(), self.y()
-        if self._docked:
             self._apply_dock()
         try:    # 完整位置与停靠态分开记：悬停恢复用的是 _full_*，重启按 _docked 还原
             config.save({"overlay_x": self._full_x if self._docked else self.x(),
@@ -177,33 +182,49 @@ class Overlay(QWidget):
             pass    # 位置记不住是小损失，不值得打断使用（R8 针对故障可见）
 
     def _apply_dock(self) -> None:
-        screen = self._screen_at().availableGeometry()
-        if self._docked == "right":
-            self.move(screen.right() - DOCKED_VISIBLE_PX, self._full_y)
-        elif self._docked == "left":
-            self.move(screen.left() - self.width() + DOCKED_VISIBLE_PX, self._full_y)
+        """停靠收缩态：6px 一条（右缘恒定贴屏，抽屉式）。"""
+        self._set_dock_width(False)
 
     def _hover_poll(self) -> None:
-        """停靠态悬停轮询（120ms，非停靠零开销）。
+        """停靠态轮询（120ms，非停靠零开销）——**抽屉式改宽度，不改位置**。
 
-        不用 enterEvent/leaveEvent：停靠条 6px 上恢复窗口的瞬间，Windows 会
-        重算命中再发一次 leave —— enter→leave→enter 无限循环，鼠标贴着屏幕
-        右缘时肉眼可见地闪烁（v0.7.2 实测）。轮询 QCursor 全局位置彻底避开：
-        收缩态鼠标落在露条/贴边上 → 展开；展开态鼠标不在窗口上 → 收回。"""
+        v0.7.3 的"露条↔完整"靠移动窗口实现：移动必触发 Windows 命中重算，
+        鼠标贴边时 enter/leave 乒乓只是被轮询放慢，闪烁依旧（用户复测）。
+        现在停靠中右缘**恒定贴屏**、只变宽度，鼠标始终在窗口内，无重算可言。
+        判定带滞后：距屏缘 ≤40px 拉出，>展开宽+60px 推回，之间保持现状。"""
         if not self._docked or self._dragging:
             return
+        screen = self._screen_at().availableGeometry()
         pos = QCursor.pos()
-        if self.x() != self._full_x:                       # 收缩态
-            if pos.x() >= self.x():                        # 悬在露条上
-                self.move(self._full_x, self._full_y)
-        elif not self.frameGeometry().contains(pos):       # 展开态但鼠标已离开
-            self._apply_dock()
+        dist = (screen.right() - pos.x()) if self._docked == "right" \
+            else (pos.x() - screen.left())
+        expanded = self.width() > DOCKED_VISIBLE_PX + 1
+        if expanded and dist > self._full_width + 60:
+            self._set_dock_width(False)      # 推回
+        elif not expanded and dist <= 40:    # 靠近（贴边或悬在露条上）拉出
+            self._set_dock_width(True)
+
+    def _set_dock_width(self, expanded: bool) -> None:
+        screen = self._screen_at().availableGeometry()
+        w = self._full_width if expanded else DOCKED_VISIBLE_PX
+        if self._docked == "right":
+            self.setGeometry(screen.right() - w, self._full_y, w, self.height())
+        else:
+            self.setGeometry(screen.left(), self._full_y, w, self.height())
 
     def paintEvent(self, _event) -> None:
         p = QPainter(self)
         p.setRenderHint(QPainter.Antialiasing)
         p.setPen(Qt.NoPen)
         p.setBrush(QColor("#22343C"))
+        if self.width() <= DOCKED_VISIBLE_PX + 1:
+            # 停靠收缩态：6px 竖条 + 一颗状态点（拉出才显示完整内容）
+            p.drawRoundedRect(self.rect(), 3, 3)
+            p.setBrush(QColor("#63D19E" if self._alive else "#9AA7AD"))
+            r = self.rect().adjusted(1, self.height() // 2 - 2, -1, -(self.height() // 2 - 2))
+            p.drawEllipse(r)
+            p.end()
+            return
         p.drawRoundedRect(self.rect(), 12, 12)
         p.setPen(QPen(QColor("#DDE7EC")))
         p.setFont(QFont("Microsoft YaHei", 8))
