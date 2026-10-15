@@ -11,6 +11,7 @@ from __future__ import annotations
 
 import os
 import sys
+import time
 from pathlib import Path
 
 from PySide6.QtCore import Qt
@@ -269,6 +270,31 @@ class PrivacyPage(QWidget):
         except OSError:
             self._rollback(self.lang_pick, 0 if i18n.current() == "zh" else 1)
             QMessageBox.warning(self, i18n.t("set_fail_title"), i18n.t("cfg_save_fail"))
+            return
+        # 悬浮窗是独立进程，语言在它启动时就缓存了 —— 写 flag 让它 2s 内优雅
+        # 退出并原位重启（v0.7.3：此前悬浮窗语言永远跟不到设置，用户实测）
+        if not config.load().get("overlay_enabled"):
+            return
+        sid = winutil.current_user_sid() or "x"
+        if not winutil.mutex_alive("Local\\UsageWatcher_Overlay_" + sid):
+            return
+        import threading
+        import ui_overlay
+
+        def _restart_overlay() -> None:
+            """后台线程：等旧悬浮窗退干净（互斥体释放）再拉新实例——
+            不等的话新实例会因互斥体未释放而静默自退。"""
+            try:
+                config.overlay_flag_path().touch()
+            except OSError:
+                return
+            for _ in range(20):
+                if not winutil.mutex_alive("Local\\UsageWatcher_Overlay_" + sid):
+                    break
+                time.sleep(0.2)
+            ui_overlay.launch_overlay()
+
+        threading.Thread(target=_restart_overlay, daemon=True).start()
 
     def _lang_row(self) -> QHBoxLayout:
         """语言选择行（语言名固定用本语言书写）。"""

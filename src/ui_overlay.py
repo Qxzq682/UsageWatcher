@@ -22,7 +22,7 @@ import time
 sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
 
 from PySide6.QtCore import Qt, QPoint, QTimer
-from PySide6.QtGui import QColor, QFont, QPainter, QPen
+from PySide6.QtGui import QColor, QCursor, QFont, QPainter, QPen
 from PySide6.QtWidgets import QApplication, QMenu, QWidget
 
 import config          # noqa: E402
@@ -36,6 +36,16 @@ _mutex_handles: list = []
 
 EDGE_SNAP_PX = 24          # 松手时距屏幕左/右缘 ≤ 此值 → 自动停靠（v0.7.2）
 DOCKED_VISIBLE_PX = 6      # 停靠时露出的宽度：鼠标悬上去即恢复完整显示
+
+
+def dock_side(x: int, width: int, screen_left: int, screen_right: int) -> str:
+    """松手位置 → 停靠边（纯函数，selftest [53]）。screen_right 为排他右缘；
+    同处双缘时优先右（罕见：窄屏 + 宽窗口）。"""
+    if screen_right - (x + width) <= EDGE_SNAP_PX:
+        return "right"
+    if x - screen_left <= EDGE_SNAP_PX:
+        return "left"
+    return ""
 
 
 def acquire_overlay_mutex() -> bool:
@@ -89,6 +99,11 @@ class Overlay(QWidget):
         fast.setInterval(2000)
         fast.timeout.connect(self._check_flag)
         fast.start()
+        # 停靠态悬停轮询（v0.7.3）：替代 enter/leave —— 后者在贴边恢复时抖动
+        hover = QTimer(self)
+        hover.setInterval(120)
+        hover.timeout.connect(self._hover_poll)
+        hover.start()
 
     # ---- 数据 ----
 
@@ -145,14 +160,12 @@ class Overlay(QWidget):
 
     def _maybe_dock(self) -> None:
         screen = self._screen_at().availableGeometry()
-        if screen.right() - (self.x() + self.width()) <= EDGE_SNAP_PX:
-            self._docked = "right"
+        self._docked = dock_side(self.x(), self.width(),
+                                 screen.left(), screen.right())
+        if self._docked == "right":
             self._full_x, self._full_y = screen.right() - self.width(), self.y()
-        elif self.x() - screen.left() <= EDGE_SNAP_PX:
-            self._docked = "left"
+        elif self._docked == "left":
             self._full_x, self._full_y = screen.left(), self.y()
-        else:
-            self._docked = ""
         if self._docked:
             self._apply_dock()
         try:    # 完整位置与停靠态分开记：悬停恢复用的是 _full_*，重启按 _docked 还原
@@ -170,14 +183,20 @@ class Overlay(QWidget):
         elif self._docked == "left":
             self.move(screen.left() - self.width() + DOCKED_VISIBLE_PX, self._full_y)
 
-    def enterEvent(self, _event) -> None:
-        """鼠标悬上停靠条 → 恢复完整显示。"""
-        if self._docked:
-            self.move(self._full_x, self._full_y)
+    def _hover_poll(self) -> None:
+        """停靠态悬停轮询（120ms，非停靠零开销）。
 
-    def leaveEvent(self, _event) -> None:
-        """鼠标离开 → 停靠中则收回一条（拖动中不收）。"""
-        if self._docked and not self._dragging:
+        不用 enterEvent/leaveEvent：停靠条 6px 上恢复窗口的瞬间，Windows 会
+        重算命中再发一次 leave —— enter→leave→enter 无限循环，鼠标贴着屏幕
+        右缘时肉眼可见地闪烁（v0.7.2 实测）。轮询 QCursor 全局位置彻底避开：
+        收缩态鼠标落在露条/贴边上 → 展开；展开态鼠标不在窗口上 → 收回。"""
+        if not self._docked or self._dragging:
+            return
+        pos = QCursor.pos()
+        if self.x() != self._full_x:                       # 收缩态
+            if pos.x() >= self.x():                        # 悬在露条上
+                self.move(self._full_x, self._full_y)
+        elif not self.frameGeometry().contains(pos):       # 展开态但鼠标已离开
             self._apply_dock()
 
     def paintEvent(self, _event) -> None:

@@ -1255,6 +1255,26 @@ def test_banner_and_dock() -> None:
         check("DEFAULTS 含 %s（漏键 = 永远存不下来）" % key, key in config.DEFAULTS)
 
 
+def test_dock_side() -> None:
+    print("\n[53] 悬浮窗停靠判定（v0.7.3，纯函数）")
+    import ui_overlay
+    L, R = 0, 1920
+    W = 176
+    check("右缘 24px 内 → 停靠右侧", ui_overlay.dock_side(R - W - 24, W, L, R) == "right")
+    check("右缘 25px 外 → 不停靠", ui_overlay.dock_side(R - W - 25, W, L, R) == "")
+    check("左缘 24px 内 → 停靠左侧", ui_overlay.dock_side(24, W, L, R) == "left")
+    check("左缘 25px 外 → 不停靠", ui_overlay.dock_side(25, W, L, R) == "")
+    check("同处双缘优先右（窄屏宽窗口的退化情形）",
+          ui_overlay.dock_side(0, 1920, L, R) == "right")
+    check("语言切换联动：ui_scope 含悬浮窗重启逻辑（v0.7.3）",
+          "launch_overlay" in open(_ui_scope_path(), encoding="utf-8").read())
+
+
+def _ui_scope_path() -> str:
+    import os as _os
+    return _os.path.join(_os.path.dirname(config.__file__), "ui_scope.py")
+
+
 def main() -> int:
     print("=" * 68)
     print(" 自测：纯逻辑回归 + 安全红线")
@@ -1308,6 +1328,7 @@ def main() -> int:
     test_config_save_keys()
     test_daily_series_bg_union()
     test_banner_and_dock()
+    test_dock_side()
 
     print("\n" + "=" * 68)
     print("通过 %d 项，失败 %d 项" % (PASSED, len(FAILED)))

@@ -43,7 +43,9 @@ MAX_FILES = 18           # v0.5 经作者同意 15→18（+ui_charts/ui_health/u
 #      配额收拢 3200 顺延 v0.8 精修轮，复刻 v0.5 放宽→v0.6 收回的节奏）
 # v0.7.2 悬浮窗贴边停靠（Q 点名需求）3450→3480（实测 3469：停靠/悬停恢复/
 #      摘要开机气泡 +45 净增；3200 收拢仍顺延 v0.8）
-MAX_CODE_LINES = 3480
+# v0.7.3 用户实测两 bug 3480→3500（实测 3498：贴边闪烁改悬停轮询 +12、
+#      dock_side 纯函数 +8、语言切换联动重启悬浮窗 +18；3200 收拢仍顺延 v0.8）
+MAX_CODE_LINES = 3500
 # 阈值必须只在 config.py 定义一次，其它模块只许用 config.XXX 访问
 UI_FORBIDDEN = ("sqlite3", "select ", "insert ", "update ", "delete from",
                 ".execute(", ".executemany(", ".executescript(")
