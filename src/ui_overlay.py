@@ -34,6 +34,9 @@ from ui_charts import apply_style, fmt_duration   # noqa: E402
 _MUTEX = "Local\\UsageWatcher_Overlay_"
 _mutex_handles: list = []
 
+EDGE_SNAP_PX = 24          # 松手时距屏幕左/右缘 ≤ 此值 → 自动停靠（v0.7.2）
+DOCKED_VISIBLE_PX = 6      # 停靠时露出的宽度：鼠标悬上去即恢复完整显示
+
 
 def acquire_overlay_mutex() -> bool:
     """单实例：已是第二个悬浮窗就返回 False（进程直接退）。"""
@@ -66,6 +69,9 @@ class Overlay(QWidget):
         self.store = data.Store()
         self.missed = 0
         self._drag = QPoint()
+        self._dragging = False
+        self._docked = ""          # ""/"left"/"right"：停靠边（拖到屏缘自动停靠）
+        self._full_x = self._full_y = 0   # 停靠时记住的完整位置
         self.setWindowFlags(Qt.FramelessWindowHint | Qt.WindowStaysOnTopHint | Qt.Tool)
         self.setAttribute(Qt.WA_TranslucentBackground)
         self.setWindowOpacity(config.OVERLAY_OPACITY)
@@ -120,10 +126,59 @@ class Overlay(QWidget):
     def _place(self) -> None:
         cfg = config.load()
         x, y = int(cfg.get("overlay_x", -1)), int(cfg.get("overlay_y", -1))
+        self._docked = str(cfg.get("overlay_docked", ""))
+        if self._docked in ("left", "right") and x >= 0 and y >= 0:
+            self._full_x, self._full_y = x, y
+            return self._apply_dock()    # 重启后恢复停靠态（只露一条）
+        self._docked = ""
         if x >= 0 and y >= 0:
             return self.move(x, y)
         screen = QApplication.primaryScreen().availableGeometry()
         self.move(screen.right() - self.width() - 16, screen.top() + 80)
+
+    # ---- 停靠（v0.7.2）：拖到屏幕左/右缘松手 → 收缩成一条；悬停恢复；拖离解除 ----
+
+    def _screen_at(self):
+        """窗口中心所在屏（多屏时按实际所在屏停靠，而非主屏）。"""
+        return (QApplication.screenAt(self.geometry().center())
+                or QApplication.primaryScreen())
+
+    def _maybe_dock(self) -> None:
+        screen = self._screen_at().availableGeometry()
+        if screen.right() - (self.x() + self.width()) <= EDGE_SNAP_PX:
+            self._docked = "right"
+            self._full_x, self._full_y = screen.right() - self.width(), self.y()
+        elif self.x() - screen.left() <= EDGE_SNAP_PX:
+            self._docked = "left"
+            self._full_x, self._full_y = screen.left(), self.y()
+        else:
+            self._docked = ""
+        if self._docked:
+            self._apply_dock()
+        try:    # 完整位置与停靠态分开记：悬停恢复用的是 _full_*，重启按 _docked 还原
+            config.save({"overlay_x": self._full_x if self._docked else self.x(),
+                         "overlay_y": self._full_y if self._docked else self.y(),
+                         "overlay_docked": self._docked},
+                        keys=("overlay_x", "overlay_y", "overlay_docked"))
+        except OSError:
+            pass    # 位置记不住是小损失，不值得打断使用（R8 针对故障可见）
+
+    def _apply_dock(self) -> None:
+        screen = self._screen_at().availableGeometry()
+        if self._docked == "right":
+            self.move(screen.right() - DOCKED_VISIBLE_PX, self._full_y)
+        elif self._docked == "left":
+            self.move(screen.left() - self.width() + DOCKED_VISIBLE_PX, self._full_y)
+
+    def enterEvent(self, _event) -> None:
+        """鼠标悬上停靠条 → 恢复完整显示。"""
+        if self._docked:
+            self.move(self._full_x, self._full_y)
+
+    def leaveEvent(self, _event) -> None:
+        """鼠标离开 → 停靠中则收回一条（拖动中不收）。"""
+        if self._docked and not self._dragging:
+            self._apply_dock()
 
     def paintEvent(self, _event) -> None:
         p = QPainter(self)
@@ -150,6 +205,7 @@ class Overlay(QWidget):
 
     def mousePressEvent(self, event) -> None:
         if event.button() == Qt.LeftButton:
+            self._dragging = True
             self._drag = event.globalPosition().toPoint() - self.frameGeometry().topLeft()
             self._press = event.globalPosition().toPoint()
 
@@ -160,14 +216,11 @@ class Overlay(QWidget):
     def mouseReleaseEvent(self, event) -> None:
         if event.button() != Qt.LeftButton:
             return
+        self._dragging = False
         # v0.5：几乎没移动 = 左键点击 → 打开统计窗口（拖动仍走保存位置）
         moved = (event.globalPosition().toPoint() - self._press).manhattanLength() \
             if hasattr(self, "_press") else 999
-        try:
-            config.save({"overlay_x": self.x(), "overlay_y": self.y()},
-                        keys=("overlay_x", "overlay_y"))
-        except OSError:
-            pass    # 位置记不住是小损失，不值得打断使用（R8 针对故障可见）
+        self._maybe_dock()    # 停靠判定 + 位置/状态落盘（v0.7.2）
         if moved <= 6:
             self._open_gui()
 

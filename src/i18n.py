@@ -183,6 +183,8 @@ _T = {
                    "Usage alerts master switch (right-click an app in Statistics to set)"),
     "sum_banner": ("昨日活跃 <b>%s</b>　Top3：%s",
                    "Yesterday <b>%s</b>　Top 3: %s"),
+    "sum_balloon": ("昨日活跃 %s。Top3：%s",
+                    "Yesterday %s. Top 3: %s"),
     "limit_menu": ("今日用时提醒…", "Daily usage alert..."),
     "limit_title": ("用时提醒", "Usage alert"),
     "limit_body": ("%s 今日前台已达 %s", "%s has reached %s of foreground time today"),

@@ -1235,6 +1235,26 @@ def test_daily_series_bg_union() -> None:
         shutil.rmtree(tmp, ignore_errors=True)
 
 
+def test_banner_and_dock() -> None:
+    print("\n[52] 摘要横幅决策 + 悬浮窗停靠（v0.7.2）")
+    import ui_main
+    today = "2026-10-15"
+    check("banner_action：未开启 → hide（会话中途关闭也能收起）",
+          ui_main.banner_action({"summary_enabled": False, "summary_last_day": ""}, today) == "hide")
+    check("banner_action：今天已展示 → keep（本会话保持显示，v0.7.1 曾误 hide 致横幅只活 5 秒）",
+          ui_main.banner_action({"summary_enabled": True, "summary_last_day": today}, today) == "keep")
+    check("banner_action：今天未展示 → show",
+          ui_main.banner_action({"summary_enabled": True, "summary_last_day": "2026-10-14"}, today) == "show")
+    rows = [{"display_name": "A", "total_ms": 3600000},
+            {"display_name": "B", "total_ms": 600000}]
+    note = track.summary_note(rows, lambda ms: "%d分" % (ms // 60000))
+    check("summary_note：正文含总时长与 Top3（纯文本，供气泡用）",
+          "70分" in note and "A 60分" in note and "B 10分" in note, note)
+    check("summary_note：空行返回空串（跳过弹送）", track.summary_note([], lambda ms: str(ms)) == "")
+    for key in ("overlay_docked",):
+        check("DEFAULTS 含 %s（漏键 = 永远存不下来）" % key, key in config.DEFAULTS)
+
+
 def main() -> int:
     print("=" * 68)
     print(" 自测：纯逻辑回归 + 安全红线")
@@ -1287,6 +1307,7 @@ def main() -> int:
     test_gui_reload_wiring()
     test_config_save_keys()
     test_daily_series_bg_union()
+    test_banner_and_dock()
 
     print("\n" + "=" * 68)
     print("通过 %d 项，失败 %d 项" % (PASSED, len(FAILED)))

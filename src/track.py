@@ -281,6 +281,16 @@ def clamp_fg_overlaps(segments: List[Segment]) -> tuple:
 
 # ---------------------------------------------------------------- 用时提醒（v0.7）
 
+def summary_note(rows: list, fmt) -> str:
+    """昨日摘要气泡/横幅的正文（纯函数）。rows = app_totals(yesterday, yesterday,
+    limit=3)（组口径），fmt = 时长格式化函数（守护传 _fmt_duration）。
+    无内容返回 ""（调用方跳过弹送）。"""
+    if not rows:
+        return ""
+    tops = "、".join("%s %s" % (r["display_name"], fmt(int(r["total_ms"]))) for r in rows)
+    return i18n.t("sum_balloon", fmt(sum(int(r["total_ms"]) for r in rows)), tops)
+
+
 def _dur_text(mins: int) -> str:
     """阈值换算成可读时长（复用 i18n 的 dur 词条，避免 1 分钟阈值显示 0.0 小时）。"""
     return i18n.t("dur_min", mins) if mins < 60 else i18n.t("dur_hm", mins // 60, mins % 60)

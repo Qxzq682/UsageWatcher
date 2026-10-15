@@ -113,8 +113,7 @@ class Daemon:
         audio.ensure_init()   # 采集线程的 COM 初始化（音频会话检测，v0.2 A1）
         return True
     def run(self) -> int:
-        if not self.start():
-            return 1
+        if not self.start(): return 1
         self.window.run(on_tick=self._housekeeping, should_stop=self.stop_event.is_set,
                         tick_ms=500)
         self.shutdown()
@@ -139,15 +138,24 @@ class Daemon:
                      _fmt_duration(s["fg_ms"]), _fmt_duration(s["bg_ms"]))
         if self.store.error_count:
             tip += i18n.t("tip_errors", self.store.error_count)
-        self.icon.set_tooltip(tip); self._maybe_limits()
+        self.icon.set_tooltip(tip); self._maybe_notes()
 
-    def _maybe_limits(self) -> None:
-        # v0.7 用时提醒：60s 粒度（随 housekeeping）查今日前台并集，超限托盘气泡
-        if not (cfg := config.load()).get("limits_enabled") or not cfg.get("app_limits"):
+    def _maybe_notes(self) -> None:
+        # 摘要（守护启动后当日首次弹昨日气泡，与 GUI 横幅共享防重复键）+ 用时提醒
+        cfg = config.load()
+        today = track.day_of(_now_ms())
+        if cfg.get("summary_enabled") and cfg.get("summary_last_day") != today:
+            config.save({"summary_last_day": today}, keys=("summary_last_day",))
+            note = track.summary_note(self.store.app_totals(
+                track.day_of(_now_ms() - 86400000), track.day_of(_now_ms() - 86400000),
+                limit=3), _fmt_duration)
+            if note and not self.icon.show_balloon(i18n.t("app_title"), note):
+                self.store.log_event("balloon_fail", detail="summary")
+        limits = cfg.get("app_limits")
+        if not cfg.get("limits_enabled") or not limits:
             return
-        rows = self.store.app_totals(track.day_of(_now_ms()), track.day_of(_now_ms()),
-                                     merge_map=self._merge_map)
-        for key, title, body in track.limit_notes(rows, cfg["app_limits"], self._notified):
+        rows = self.store.app_totals(today, today, merge_map=self._merge_map)
+        for key, title, body in track.limit_notes(rows, limits, self._notified):
             self._notified.add(key)
             if self.icon and not self.icon.show_balloon(title, body): self.store.log_event("balloon_fail", detail=key)
 
@@ -158,17 +166,14 @@ class Daemon:
         if self._worker and self._worker.is_alive():
             self._worker.join(timeout=3)
         now = _now_ms()
-        self._emit(self.fg_tracker.force_close(now, config.FLAG_EXIT))
-        self._emit(self.bg_tracker.close_all(now, config.FLAG_EXIT))
+        self._emit(self.fg_tracker.force_close(now, config.FLAG_EXIT)); self._emit(self.bg_tracker.close_all(now, config.FLAG_EXIT))
         self.flush(force=True)
 
     def shutdown(self) -> None:
         self.stop_and_flush()          # 数据已落库，之后才允许关库
         try:
-            self.power.unregister(self.window.hwnd)
-            self.fg.uninstall()
-            if self.icon:
-                self.icon.hide()
+            self.power.unregister(self.window.hwnd); self.fg.uninstall()
+            if self.icon: self.icon.hide()
             self.window.destroy()
         except Exception:
             pass      # nosec B110  剩下的只是资源释放，失败也不能阻断退出（防进程残留）
@@ -180,17 +185,15 @@ class Daemon:
     def _menu_items(self) -> list:
         day = track.day_of(_now_ms())
         s = self.store.totals_summary(day, day)
-        return tray.Options.build(self.paused, _fmt_duration(s["fg_ms"]),
-                                  _fmt_duration(s["bg_ms"]))
+        return tray.Options.build(self.paused,
+                                  _fmt_duration(s["fg_ms"]), _fmt_duration(s["bg_ms"]))
 
     def _on_command(self, item_id: int, _lparam: int) -> None:
         if item_id == tray.Options.OPEN:
             self.open_gui()
         elif item_id == tray.Options.OPEN_DATA:
-            try:
-                os.startfile(str(config.data_dir()))   # 只打开本应用自己的数据目录
-            except OSError as exc:
-                self.store.log_event("open_data_fail", detail=str(exc))
+            try: os.startfile(str(config.data_dir()))   # 只打开本应用自己的数据目录
+            except OSError as exc: self.store.log_event("open_data_fail", detail=str(exc))
         elif item_id == tray.Options.PAUSE:
             self.set_paused(not self.paused)
         elif item_id == tray.Options.QUIT:
@@ -202,8 +205,7 @@ class Daemon:
         try:
             subprocess.Popen([sys.executable, os.path.abspath(__file__), "--gui"],  # nosec B603
                              shell=False, close_fds=True)
-        except OSError as exc:
-            self.store.log_event("gui_launch_fail", detail=str(exc))
+        except OSError as exc: self.store.log_event("gui_launch_fail", detail=str(exc))
 
     def set_paused(self, value: bool) -> None:
         if value == self.paused:
@@ -422,13 +424,11 @@ def _start_daemon() -> None:
 
 
 def main(argv: list) -> int:
-    if "--gui" in argv:
-        return run_gui(smoke="--smoke" in argv)
+    if "--gui" in argv: return run_gui(smoke="--smoke" in argv)
     if "--overlay" in argv:    # 桌面悬浮窗（v0.3）：独立轻进程，重复启动自退
         import ui_overlay
         return ui_overlay.run() if ui_overlay.acquire_overlay_mutex() else 0
-    if "--smoke" in argv:
-        return _smoke_run()
+    if "--smoke" in argv: return _smoke_run()
     if not acquire_single_instance():
         print(i18n.t("already_running"))
         run_gui()          # 不再起第二个采集器，直接把统计窗口拉起来

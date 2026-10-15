@@ -146,6 +146,16 @@ class RankModel(QAbstractTableModel):
 
 # ---------------------------------------------------------------- 主窗口
 
+def banner_action(cfg: dict, today: str) -> str:
+    """横幅动作决策（纯函数，selftest [52] 锁三分支）：
+    'show' 今天首次（展示并落盘）/ 'keep' 本会话已展示过（**保持现状**，
+    v0.7.1 之前这里误调 hide() 导致横幅只显示 5 秒就被自动刷新藏掉）/
+    'hide' 未开启摘要（主动收起，支持会话中途关闭）。"""
+    if not cfg.get("summary_enabled"):
+        return "hide"
+    return "keep" if cfg.get("summary_last_day") == today else "show"
+
+
 class MainWindow(QMainWindow):
     def __init__(self, store, daemon_alive=None) -> None:
         super().__init__()
@@ -296,14 +306,15 @@ class MainWindow(QMainWindow):
         self._update_banner()
 
     def _update_banner(self) -> None:
-        """每日摘要横幅（v0.7）：每天首次打开展示昨日 Top3 概览（A 方案）。
-        config.summary_last_day 记"展示过"的日期 —— 含昨天无记录的日子，
-        否则每 5s 自动刷新都会反复查库；明天自然重新尝试。"""
-        cfg = config.load()
+        """每日摘要横幅（v0.7）：今天首次 reload 展示昨日 Top3 并落盘防重复；
+        之后本会话保持显示（banner_action 'keep'），关窗重开不再弹（A 方案）。"""
         today = date.today().isoformat()
-        if not cfg.get("summary_enabled") or cfg.get("summary_last_day") == today:
+        action = banner_action(config.load(), today)
+        if action == "hide":
             self.banner.hide()
             return
+        if action == "keep":
+            return                    # 本会话已展示，保持现状（不许再 hide）
         try:
             config.save({"summary_last_day": today}, keys=("summary_last_day",))
         except OSError:
