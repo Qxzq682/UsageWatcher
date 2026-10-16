@@ -191,18 +191,21 @@ class Overlay(QWidget):
         v0.7.3 的"露条↔完整"靠移动窗口实现：移动必触发 Windows 命中重算，
         鼠标贴边时 enter/leave 乒乓只是被轮询放慢，闪烁依旧（用户复测）。
         现在停靠中右缘**恒定贴屏**、只变宽度，鼠标始终在窗口内，无重算可言。
-        判定带滞后：距屏缘 ≤40px 拉出，>展开宽+60px 推回，之间保持现状。"""
+        判定带滞后与高度带（v0.7.8，Q 反馈"整个侧边缘都会触发"太宽）：
+        拉出 = 距屏缘 ≤40px 且鼠标在悬浮窗高度带（±40px）内；
+        推回 = 拉出宽度之外 或 鼠标离开高度带。"""
         if not self._docked or self._dragging:
             return
         screen = self._screen_at().availableGeometry()
         pos = QCursor.pos()
         dist = (screen.right() - pos.x()) if self._docked == "right" \
             else (pos.x() - screen.left())
+        near_y = self._full_y - 40 <= pos.y() <= self._full_y + self.height() + 40
         expanded = self.width() > DOCKED_VISIBLE_PX + 1
-        if expanded and dist > self._full_width + 60:
-            self._set_dock_width(False)      # 推回
-        elif not expanded and dist <= 40:    # 靠近（贴边或悬在露条上）拉出
-            self._set_dock_width(True)
+        if expanded and (dist > self._full_width + 60 or not near_y):
+            self._set_dock_width(False)      # 推回（离开窗口附近就收）
+        elif not expanded and dist <= 40 and near_y:
+            self._set_dock_width(True)       # 拉出（靠近屏缘且在悬浮窗高度带）
 
     def _set_dock_width(self, expanded: bool) -> None:
         screen = self._screen_at().availableGeometry()
