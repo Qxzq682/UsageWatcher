@@ -99,7 +99,9 @@ if DB.exists():
 print("   app=%d segment=%d" % (n_app, n_seg))
 
 print("== 5. 重启源码守护进程 ==")
-pythonw = os.environ.get("PYW", r"C:\Python313\pythonw.exe")
+# 默认用「跑本脚本的解释器」同目录的 pythonw（venv/系统装法都成立）；
+# 特殊布局可用环境变量 PYW 覆盖
+pythonw = os.environ.get("PYW") or os.path.join(os.path.dirname(sys.executable), "pythonw.exe")
 subprocess.Popen([pythonw, str(ROOT / "src" / "app.py")], cwd=str(ROOT),
                  creationflags=subprocess.CREATE_NO_WINDOW)
 time.sleep(3)
