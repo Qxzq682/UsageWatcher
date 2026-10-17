@@ -873,9 +873,9 @@ def test_merge_grouping() -> None:
     check("WindowsApps 不爬根",
           apps.crawl_root(r"C:\Program Files\WindowsApps\B9ECED6F.App_1.0_x64\App.exe") == "")
     check("点开头目录不爬根（portablegit / python versions 误合案）",
-          apps.crawl_root(r"C:\Users\Q\.workbuddy\binaries\python\versions\3.13.12\python.exe") == "")
-    check("存放目录不作根（D:\\下载 两个无关安装包误合案）",
-          apps.crawl_root(r"D:\下载\dsh-latest-windows-x64.exe") == "")
+          apps.crawl_root(r"C:\Users\demo\.anyenv\binaries\python\versions\3.13\python.exe") == "")
+    check("存放目录不作根（下载目录两个无关安装包误合案）",
+          apps.crawl_root(r"D:\Downloads\demo-installer-x64.exe") == "")
     check("路径预设命中（鸣潮）",
           apps.merge_key(r"D:\Games\Wuthering Waves\Game\Binaries\Win64\x.exe", "x.exe") == "鸣潮")
     check("exe 基名预设命中（微信跨树家族）",
@@ -886,8 +886,8 @@ def test_merge_grouping() -> None:
           and apps.crawl_root(r"C:\Program Files (x86)\Microsoft\Edge\Application\msedge.exe")
           == r"c:\program files (x86)\microsoft\edge")
     check("office6 视为结构目录，爬到 WPS Office 根",
-          apps.crawl_root(r"C:\Users\Q\AppData\Local\Kingsoft\WPS Office\12.1.0.28505\office6\wps.exe")
-          == r"c:\users\q\appdata\local\kingsoft\wps office")
+          apps.crawl_root(r"C:\Users\demo\AppData\Local\Kingsoft\WPS Office\12.1.0\office6\wps.exe")
+          == r"c:\users\demo\appdata\local\kingsoft\wps office")
     check("路径短于三层返回空", apps.crawl_root(r"D:\foo.exe") == "")
     check("空路径返回空", apps.crawl_root("") == "")
 

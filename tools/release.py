@@ -34,7 +34,7 @@ RELEASE = ROOT / "release"
 
 
 def next_dist_pair() -> tuple:
-    """找一对没被占用的 buildN/distN（沙箱 safe-delete 会拦 --noconfirm
+    """找一对没被占用的 buildN/distN（部分安全策略会拦 --noconfirm
     清旧目录，所以每次构建都开新路径——实测教训）。"""
     n = 5   # build1-4 已被历史构建用过
     while (ROOT / f"dist{n}").exists() or (ROOT / f"build{n}").exists():
@@ -105,8 +105,8 @@ def restore_source_daemon() -> None:
                      creationflags=subprocess.CREATE_NO_WINDOW)
     time.sleep(3)
     # R8：恢复结果必须可见。注意：若本脚本跑在受限执行环境（如 WorkBuddy
-    # 沙箱）里，进程树会随任务结束被收割——这里查活着也没用，只能靠
-    # 沙箱外跑（用户双击 构建发行包.bat）才可靠。如实打印当下状态即可。
+    # 受控终端）里，进程树会随任务结束被收割——这里查活着也没用，只能靠
+    # 受控终端外跑（用户双击 构建发行包.bat）才可靠。如实打印当下状态即可。
     import winutil
     alive = winutil.mutex_alive("Global\\UsageWatcher_SingleInstance_"
                                 + (winutil.current_user_sid() or "unknown"))

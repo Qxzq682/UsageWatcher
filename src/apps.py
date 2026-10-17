@@ -190,10 +190,10 @@ _MERGE_PRESETS = (
     ("exe", "weixin.exe", "微信"),
     ("exe", "wechatappex.exe", "微信"),
     ("exe", "wechat.exe", "微信"),
-    # WorkBuddy 本体与其自带 python 运行时（resources\vendor\python）同属一个
-    # 应用家族：爬根会浮到 "work buddy"（父目录与祖目录规范化同名上浮），
+    # AI 助手类应用示例：本体与其自带 python 运行时（resources\vendor\python）
+    # 同属一个应用家族——爬根会浮到同名的父目录（父目录与祖目录规范化同名上浮），
     # 显示成小写目录名毫无意义（第 10 轮检测 B2/B3）。预设命中即生效。
-    # WorkBuddyAI（workbuddyai\...）不含 "work buddy\workbuddy" 子串，不误伤。
+    # 注意：同名前缀更长的路径（workbuddyai\...）不含该子串，不误伤。
     ("path", "work buddy\\workbuddy", "WorkBuddy"),
 )
 

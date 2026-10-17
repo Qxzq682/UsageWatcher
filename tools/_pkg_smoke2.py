@@ -22,7 +22,7 @@ elif "--dist3" in _args:
 elif any(a.startswith("--dist") for a in _args):
     _dist = next(a[2:] for a in _args if a.startswith("--dist"))
 EXE = ROOT / _dist / "UsageWatcher" / "UsageWatcher.exe"
-SANDBOX = ROOT / "_pkg_smoke_env9"      # 全新目录：全程零删除操作（本轮删除被沙箱粘性拦截）
+SANDBOX = ROOT / "_pkg_smoke_env9"      # 全新目录：全程零删除操作（部分安全策略会拦截删除）
 FLAG = SANDBOX / "UsageWatcher" / "stop.flag"
 DB = SANDBOX / "UsageWatcher" / "usage.db"
 
@@ -99,7 +99,7 @@ if DB.exists():
 print("   app=%d segment=%d" % (n_app, n_seg))
 
 print("== 5. 重启源码守护进程 ==")
-pythonw = r"C:\Users\Q\.workbuddy\binaries\python\envs\default\Scripts\pythonw.exe"
+pythonw = os.environ.get("PYW", r"C:\Python313\pythonw.exe")
 subprocess.Popen([pythonw, str(ROOT / "src" / "app.py")], cwd=str(ROOT),
                  creationflags=subprocess.CREATE_NO_WINDOW)
 time.sleep(3)

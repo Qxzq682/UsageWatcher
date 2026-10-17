@@ -7,7 +7,7 @@ rem  这些不是运行程序所必需的，只在你想自己检查代码安全时用
 rem ============================================================
 
 rem 【改这里】换 Python 环境就改这一行
-set "PY=C:\Users\Q\.workbuddy\binaries\python\envs\default\Scripts\python.exe"
+rem set "PY=C://path//to//your//python.exe"
 if not exist "%PY%" set "PY=python"
 
 echo 使用 Python: %PY%

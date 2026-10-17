@@ -44,4 +44,4 @@ dist*/
 release/
 assets/_preview_*.png
 # AI 图标底图原图（中间产物，成品 app_icon.ico/png 已入库）
-assets/Flat_modern_*.png
+assets/Flat_*.png

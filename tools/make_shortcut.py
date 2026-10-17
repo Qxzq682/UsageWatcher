@@ -1,7 +1,7 @@
 r"""在桌面创建 / 删除快捷方式。
 
-⚠ 必须在**沙箱外**运行（双击 建桌面快捷方式.bat），
-   沙箱内写桌面 + 调用 Shell COM 会被安全策略直接杀掉。
+⚠ 必须在受控终端之外运行（双击 建桌面快捷方式.bat），
+   受控终端里写桌面 + 调用 Shell COM 会被安全策略直接杀掉。
 
 做法要点：
   · 目标直接指向 pythonw.exe + 脚本路径，**不经过 .bat**：
@@ -108,7 +108,7 @@ def main() -> int:
         return remove() if args.remove else create()
     except Exception as exc:
         print("[x] 失败：%s" % exc)
-        print("    如果是在沙箱里运行，请改为双击 建桌面快捷方式.bat（沙箱外执行）。")
+        print("    如果直接命令行运行失败，请改为双击 建桌面快捷方式.bat。")
         return 1
 
 

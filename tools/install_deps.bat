@@ -7,7 +7,7 @@ rem  双击本文件即可，不需要手敲任何命令
 rem ============================================================
 
 rem 【改这里】如果你换了自己的 Python 环境，把下面这一行改成你的 python.exe 路径
-set "PY=C:\Users\Q\.workbuddy\binaries\python\envs\default\Scripts\python.exe"
+rem set "PY=C://path//to//your//python.exe"
 
 if not exist "%PY%" (
     echo [!] 没有找到上面的 Python，尝试用系统 PATH 里的 python ...

@@ -29,7 +29,7 @@ def members_of(row: dict, merge_map: dict) -> list:
 
     判定用 app_key 精确匹配（行的 app_key 是组代表成员，必在 merge_map 里），
     不按显示名比较 —— 否则未归并应用的原始名恰与组名同名时会误认成组
-    （外部检测报告 v0.5 D2）。"""
+    （v0.5 检测 D2）。"""
     group = merge_map.get(row["app_key"])
     if group and group == row["display_name"]:
         return [key for key, val in merge_map.items() if val == group]
