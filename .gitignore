@@ -45,3 +45,9 @@ release/
 assets/_preview_*.png
 # AI 图标底图原图（中间产物，成品 app_icon.ico/png 已入库）
 assets/Flat_*.png
+
+# 开发内部物料（本地保留，不入库；git 历史中的旧版本经维护者确认接受）
+/重点提示清单.md
+/v0.5更新预览.md
+/v0.6更新预览.md
+/v0.7更新预览.md
