@@ -88,7 +88,7 @@ class Overlay(QWidget):
         self.setWindowOpacity(config.OVERLAY_OPACITY)
         self.resize(config.OVERLAY_WIDTH, config.OVERLAY_HEIGHT)
         self._place()
-        self._today: dict = {"total_ms": 0, "fg_ms": 0, "bg_ms": 0}
+        self._today: dict = {"total_ms": 0, "fg_ms": 0, "pure_bg_ms": 0}
         self._alive = True
         self.tick()
         slow = QTimer(self)
@@ -241,7 +241,7 @@ class Overlay(QWidget):
         p.setFont(QFont("Microsoft YaHei", 7))
         p.drawText(self.rect().adjusted(12, 44, -8, -2), Qt.AlignLeft,
                    i18n.t("ov_fg_bg", fmt_duration(self._today["fg_ms"]),
-                          fmt_duration(self._today["bg_ms"])))
+                          fmt_duration(self._today["pure_bg_ms"])))
         p.end()
 
     # ---- 交互：拖动 / 右键菜单 ----

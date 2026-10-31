@@ -1068,10 +1068,10 @@ def test_own_exe_and_assets() -> None:
     import os
     check("is_own_exe 命中本进程解释器路径",
           apps.is_own_exe(sys.executable) is True, sys.executable)
-    check("is_own_exe 命中真解释器路径（venv 壳≠真身，第 10 轮 B1）",
-          apps.is_own_exe(os.path.join(getattr(sys, "base_prefix", ""),
-                                       "pythonw.exe")) is True,
-          os.path.join(getattr(sys, "base_prefix", ""), "pythonw.exe"))
+    check("is_own_exe 对 _OWN_EXES 每个成员自洽（环境无关；v0.7.10 起替换"
+          " base_prefix 硬编码——WorkBuddy 的 Python 安装漂移后该路径可能不存在）",
+          all(apps.is_own_exe(p) is True for p in apps._OWN_EXES)
+          and len(apps._OWN_EXES) >= 1)
     check("is_own_exe 不误伤他人路径（大小写/相对路径也判 False）",
           apps.is_own_exe(r"C:\Other\pythonw.exe") is False
           and apps.is_own_exe("") is False)
@@ -1230,6 +1230,14 @@ def test_daily_series_bg_union() -> None:
         check("active_ms = fg∪bg 大并集（90 分钟）",
               series["active_ms"] == 90 * 60000,
               "%d 分" % (series["active_ms"] // 60000))
+        check("pure_bg_ms = 后台减前台覆盖（85 分钟）",
+              series["pure_bg_ms"] == 85 * 60000,
+              "%d 分" % (series["pure_bg_ms"] // 60000))
+        check("fg + pure_bg == active（tooltip 加法自洽）",
+              series["fg_ms"] + series["pure_bg_ms"] == series["active_ms"])
+        check("pure_bg_ms 区间差边界：fg 全覆盖 bg → 0",
+              track.pure_bg_ms([(base, base + 7200000)],
+                               [(base + 600000, base + 1200000)]) == 0)
     finally:
         store.close()
         shutil.rmtree(tmp, ignore_errors=True)

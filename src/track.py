@@ -94,6 +94,43 @@ def union_ms(intervals: Iterable) -> int:
     return total + (cur_end - cur_start)
 
 
+def pure_bg_ms(fg_intervals: Iterable, bg_intervals: Iterable) -> int:
+    """后台时长中"不被前台覆盖"的部分（区间差集 bg \\ fg，纯函数）。
+
+    悬浮窗/托盘 tooltip 用 fg + pure_bg 展示：两者相加正好等于活跃
+    并集，消除"前台+后台 > 活跃"的加法歧义（用户实测反馈的口径困惑）。
+    重叠部分（同时有前台活动与后台活动）只计入前台一侧。
+    """
+    merged = []                                    # 前台并集（互斥，仍合并兜底）
+    for s, e in sorted((int(s), int(e)) for s, e in fg_intervals if e > s):
+        if merged and s <= merged[-1][1]:
+            merged[-1][1] = max(merged[-1][1], e)
+        else:
+            merged.append([s, e])
+    bg_merged = []                                 # 后台并集：不合并会重复计入重叠
+    for s, e in sorted((int(s), int(e)) for s, e in bg_intervals if e > s):
+        if bg_merged and s <= bg_merged[-1][1]:
+            bg_merged[-1][1] = max(bg_merged[-1][1], e)
+        else:
+            bg_merged.append([s, e])
+    total = 0
+    for s, e in bg_merged:
+        cur = s
+        for cs, ce in merged:
+            if ce <= cur:
+                continue
+            if cs >= e:
+                break
+            if cs > cur:
+                total += min(cs, e) - cur
+            cur = max(cur, ce)
+            if cur >= e:
+                break
+        if cur < e:
+            total += e - cur
+    return total
+
+
 def build_day_grid(day: str, day_start_ms: int, segs: list) -> dict:
     """数据健康视图网格（v0.5，纯函数）：5 分钟一格标记 + 断档归因。
 

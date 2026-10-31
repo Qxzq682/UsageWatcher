@@ -309,10 +309,8 @@ class Store:
                 "errors": err}
 
     def daily_series(self, day_from: str, day_to: str) -> List[dict]:
-        """按天序列（近 N 天迷你柱状图）；active_ms = 当天 fg∪bg 并集。
-        fg/bg 也各取**当天并集**：后台多进程共存，相加会重复计入重叠
-        （实测悬浮窗显示"后台 36 小时/天"——几十个进程的后台片段全加了一遍，
-        用户截图实锤，第 11 轮后）。"""
+        """按天序列；active_ms = 当天 fg∪bg 并集，fg/bg/pure_bg_ms 各取当天并集/
+        后台对前台的差集（纯后台 = tooltip 口径，fg + pure_bg == active）。"""
         rows = self.conn.execute(
             "SELECT day, app_id, kind, start_ms, end_ms FROM segment WHERE day BETWEEN ? AND ? ORDER BY day",
             (day_from, day_to)).fetchall()
@@ -328,6 +326,8 @@ class Store:
             per_day[day]["fg_ms" if kind == "fg" else "bg_ms"] = track.union_ms(spans_list)
         for entry in per_day.values():   # fg∪bg 大并集（不分 kind）
             entry["active_ms"] = track.union_ms(entry.pop("_spans"))
+            entry["pure_bg_ms"] = track.pure_bg_ms(grouped.get((entry["day"], "fg"), []),
+                                                   grouped.get((entry["day"], "bg"), []))
         return [per_day[d] for d in sorted(per_day)]
 
     def day_grid(self, day: str) -> dict:
@@ -369,10 +369,10 @@ class Store:
 
     def totals_summary(self, day_from: str, day_to: str) -> dict:
         series = self.daily_series(day_from, day_to)
-        fg, bg, active = (sum(d[k] for d in series)
-                          for k in ("fg_ms", "bg_ms", "active_ms"))
-        return {"fg_ms": fg, "bg_ms": bg, "total_ms": active,
-                "fg_ratio": (fg / active) if active else 0.0}
+        f, b, a, p = (sum(d[k] for d in series)
+                      for k in ("fg_ms", "bg_ms", "active_ms", "pure_bg_ms"))
+        return {"fg_ms": f, "bg_ms": b, "total_ms": a, "pure_bg_ms": p,
+                "fg_ratio": (f / a) if a else 0.0}
 
     def sample_content(self, limit: int = 10) -> dict:
         """给 audit 用：抽样库里的实际内容，让人肉眼看「到底存了什么」。"""

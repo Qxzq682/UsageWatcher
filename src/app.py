@@ -130,7 +130,7 @@ class Daemon:
             return
         d = track.day_of(_now_ms()); s = self.store.totals_summary(d, d)
         tip = i18n.t("tip_today", i18n.t("app_title"), _fmt_duration(s["total_ms"]),
-                     _fmt_duration(s["fg_ms"]), _fmt_duration(s["bg_ms"]))
+                     _fmt_duration(s["fg_ms"]), _fmt_duration(s["pure_bg_ms"]))
         if self.store.error_count:
             tip += i18n.t("tip_errors", self.store.error_count)
         self.icon.set_tooltip(tip); self._maybe_notes()
@@ -180,7 +180,7 @@ class Daemon:
         day = track.day_of(_now_ms())
         s = self.store.totals_summary(day, day)
         return tray.Options.build(self.paused,
-                                  _fmt_duration(s["fg_ms"]), _fmt_duration(s["bg_ms"]))
+                                  _fmt_duration(s["fg_ms"]), _fmt_duration(s["pure_bg_ms"]))
 
     def _on_command(self, item_id: int, _lparam: int) -> None:
         if item_id == tray.Options.OPEN:

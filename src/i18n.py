@@ -19,10 +19,10 @@ _T = {
     "already_running": ("程序已在运行，正在打开统计窗口…",
                         "Already running — opening the statistics window…"),
     "tip_paused": ("已暂停统计", "Paused"),
-    "tip_today": ("%s\n今日活跃 %s（前台 %s · 后台 %s）",
-                  "%s\nActive today %s (fg %s · bg %s)"),
+    "tip_today": ("%s\n今日活跃 %s（前台 %s · 纯后台 %s）",
+                  "%s\nActive today %s (fg %s · pure bg %s)"),
     "tip_errors": ("\n[!] 采集异常 %d 次", "\n[!] %d collection errors"),
-    "tray_summary": ("今日前台 %s · 后台 %s", "Today fg %s · bg %s"),
+    "tray_summary": ("今日前台 %s · 纯后台 %s", "Today fg %s · pure bg %s"),
     "tray_open": ("打开统计窗口", "Open statistics"), "tray_open_data": ("打开数据目录", "Open data folder"),
     "tray_feedback": ("反馈问题…", "Report an issue..."),
     "lang_restart_title": ("重启统计窗口？", "Restart the window?"),
@@ -198,7 +198,7 @@ _T = {
                      "After a reboot, the overlay is restored automatically when you "
                      "open the statistics window."),
     "ov_title": ("今日活跃", "Active today"), "ov_paused": ("监测未运行", "Not running"),
-    "ov_fg_bg": ("前台 %s · 后台 %s", "fg %s · bg %s"), "ov_menu_quit": ("退出悬浮窗", "Exit overlay"),
+    "ov_fg_bg": ("前台 %s · 纯后台 %s", "fg %s · pure bg %s"), "ov_menu_quit": ("退出悬浮窗", "Exit overlay"),
 }
 
 LANGS = ("zh", "en")
