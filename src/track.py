@@ -318,14 +318,16 @@ def clamp_fg_overlaps(segments: List[Segment]) -> tuple:
 
 # ---------------------------------------------------------------- 用时提醒（v0.7）
 
-def summary_note(rows: list, fmt) -> str:
+def summary_note(rows: list, fmt, active_ms: int) -> str:
     """昨日摘要气泡/横幅的正文（纯函数）。rows = app_totals(yesterday, yesterday,
-    limit=3)（组口径），fmt = 时长格式化函数（守护传 _fmt_duration）。
-    无内容返回 ""（调用方跳过弹送）。"""
+    limit=3)（组口径），fmt = 时长格式化函数，active_ms = 昨日 fg∪bg 大并集
+    （totals_summary）——**"昨日活跃"必须传并集**：Top3 各组间互相重叠，
+    相加会破 24h 物理极限（v0.7.11 修复，实测 26h03m/24h37m/27h53m 三天复现）。
+    无 rows 返回 ""（调用方跳过弹送）。"""
     if not rows:
         return ""
     tops = "、".join("%s %s" % (r["display_name"], fmt(int(r["total_ms"]))) for r in rows)
-    return i18n.t("sum_balloon", fmt(sum(int(r["total_ms"]) for r in rows)), tops)
+    return i18n.t("sum_balloon", fmt(int(active_ms)), tops)
 
 
 def _dur_text(mins: int) -> str:

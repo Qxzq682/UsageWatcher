@@ -1255,10 +1255,12 @@ def test_banner_and_dock() -> None:
           ui_main.banner_action({"summary_enabled": True, "summary_last_day": "2026-10-14"}, today) == "show")
     rows = [{"display_name": "A", "total_ms": 3600000},
             {"display_name": "B", "total_ms": 600000}]
-    note = track.summary_note(rows, lambda ms: "%d分" % (ms // 60000))
-    check("summary_note：正文含总时长与 Top3（纯文本，供气泡用）",
-          "70分" in note and "A 60分" in note and "B 10分" in note, note)
-    check("summary_note：空行返回空串（跳过弹送）", track.summary_note([], lambda ms: str(ms)) == "")
+    note = track.summary_note(rows, lambda ms: "%d分" % (ms // 60000), 2400000)
+    check("summary_note：昨日活跃用大并集（2400 分 ≠ Top3 相加 4200 分，"
+          "v0.7.11 修复 Top3 相加破 24h）",
+          note.startswith("昨日活跃 40分。") and "A 60分" in note and "B 10分" in note, note)
+    check("summary_note：空行返回空串（跳过弹送）",
+          track.summary_note([], lambda ms: str(ms), 0) == "")
     for key in ("overlay_docked",):
         check("DEFAULTS 含 %s（漏键 = 永远存不下来）" % key, key in config.DEFAULTS)
 

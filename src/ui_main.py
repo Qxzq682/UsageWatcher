@@ -326,8 +326,10 @@ class MainWindow(QMainWindow):
             return
         tops = "、".join("%s %s" % (r["display_name"], fmt_duration(r["total_ms"]))
                          for r in rows)
-        self.banner.setText(i18n.t("sum_banner",
-                                   fmt_duration(sum(r["total_ms"] for r in rows)), tops))
+        # "昨日活跃"用 fg∪bg 大并集：Top3 各组间重叠，相加曾破 24h（v0.7.11 修复）
+        active = self.store.totals_summary(yesterday.isoformat(),
+                                           yesterday.isoformat())["total_ms"]
+        self.banner.setText(i18n.t("sum_banner", fmt_duration(active), tops))
         self.banner.show()
 
     def _row_menu(self, pos) -> None:

@@ -141,9 +141,11 @@ class Daemon:
         today = track.day_of(_now_ms())
         if cfg.get("summary_enabled") and cfg.get("summary_last_day") != today:
             config.save({"summary_last_day": today}, keys=("summary_last_day",))
-            note = track.summary_note(self.store.app_totals(
-                track.day_of(_now_ms() - 86400000), track.day_of(_now_ms() - 86400000),
-                limit=3), _fmt_duration)
+            y = track.day_of(_now_ms() - 86400000)
+            # "昨日活跃"用 fg∪bg 大并集（totals_summary）；Top3 相加会破 24h
+            note = track.summary_note(self.store.app_totals(y, y, limit=3),
+                                      _fmt_duration,
+                                      self.store.totals_summary(y, y)["total_ms"])
             if note and not self.icon.show_balloon(i18n.t("app_title"), note):
                 self.store.log_event("balloon_fail", detail="summary")
         limits = cfg.get("app_limits")

@@ -696,3 +696,20 @@ selftest 172 项（+5）、audit 9/9、test_arch 全绿、GUI smoke rc=0。
   必须命中）：WorkBuddy 宿主的 Python 安装漂移（versions\3.13.12 缺
   stdlib landmark，base_prefix 漂至项目根）后，旧断言对不存在路径
   硬编码命中而失效；产品运行时判定不受影响（同一套构造，自洽）。
+
+## [0.7.11] - 2026-11-21
+
+用户实测：开机摘要气泡显示"昨日活跃 **24h27m**"（破 24h 物理极限）。
+
+### 修复
+
+- **摘要气泡/横幅的"昨日活跃"错用 Top3 相加**：`sum(app_totals Top3)`
+  把互相重叠的组（WorkBuddy 常驻 12h22 的同时 Steam/Weixin 也在各自跑）
+  各计一次——实测库中 11-17/18/19 三天 Top3 相加 26h03/24h37/27h53，
+  全部破 24h；真值（fg∪bg 大并集）15h51/13h41/14h24。v0.7.1 修过悬浮窗
+  的同类 bug（相加→并集），但摘要气泡与统计窗口横幅走的是 app_totals
+  Top3，是漏网的同源缺陷。
+- 修：track.summary_note 增加 active_ms 参数（调用方传 totals_summary
+  的 fg∪bg 并集），守护气泡与统计窗口横幅两处调用同步；Top3 各组时长
+  展示不变（组级并集 ≤24h，合法）。
+- selftest [52] 断言更新：Top3 相加 4200 分 ≠ 传入并集 2400 分，锁死回归。
